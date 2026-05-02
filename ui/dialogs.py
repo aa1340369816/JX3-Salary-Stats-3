@@ -1,10 +1,10 @@
 """
-对话框 - 新增/编辑记录 + 统一消息弹窗
+对话框 - 新增/编辑记录（含团牌、掉落） + 统一消息弹窗
 """
 
 from PyQt6.QtWidgets import (
-    QDialog, QFormLayout, QLineEdit, QComboBox, QPushButton,
-    QHBoxLayout, QVBoxLayout, QLabel, QMessageBox, QDateEdit
+    QDialog, QFormLayout, QLineEdit, QPushButton,
+    QHBoxLayout, QVBoxLayout, QLabel, QDateEdit
 )
 from PyQt6.QtCore import QDate, Qt
 from core.utils import parse_brick_input, number_to_brick
@@ -18,10 +18,6 @@ FACTIONS = [
 
 
 def show_message(parent, title, text, msg_type='info'):
-    """
-    统一的消息弹窗 - 无边框，黑白风格
-    msg_type: 'info', 'warning', 'question', 'error'
-    """
     dialog = QDialog(parent)
     dialog.setWindowTitle(title)
     dialog.setMinimumWidth(400)
@@ -32,7 +28,6 @@ def show_message(parent, title, text, msg_type='info'):
     layout.setSpacing(16)
     layout.setContentsMargins(20, 20, 20, 20)
     
-    # 标题栏
     title_bar = QHBoxLayout()
     title_label = QLabel(title)
     title_label.setStyleSheet('font-family: "JetBrains Mono", monospace; font-size: 14px; font-weight: bold; letter-spacing: 2px;')
@@ -44,19 +39,16 @@ def show_message(parent, title, text, msg_type='info'):
     title_bar.addWidget(close_btn)
     layout.addLayout(title_bar)
     
-    # 分隔线
     sep = QLabel()
     sep.setFixedHeight(2)
     sep.setStyleSheet('background-color: #000000;')
     layout.addWidget(sep)
     
-    # 消息内容
     msg_label = QLabel(text)
     msg_label.setWordWrap(True)
     msg_label.setStyleSheet('font-family: "JetBrains Mono", monospace; font-size: 13px; padding: 8px 0px;')
     layout.addWidget(msg_label)
     
-    # 按钮
     btn_layout = QHBoxLayout()
     btn_layout.addStretch()
     
@@ -77,7 +69,6 @@ def show_message(parent, title, text, msg_type='info'):
 
 
 def confirm_action(parent, title, text):
-    """确认弹窗，返回 True/False"""
     return show_message(parent, title, text, 'question')
 
 
@@ -89,7 +80,7 @@ class RecordDialog(QDialog):
         self.is_edit = record is not None
         
         self.setWindowTitle('编辑记录' if self.is_edit else '新增记录')
-        self.setMinimumWidth(420)
+        self.setMinimumWidth(450)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         if parent:
             self.setStyleSheet(parent.styleSheet())
@@ -104,7 +95,6 @@ class RecordDialog(QDialog):
         layout.setSpacing(12)
         layout.setContentsMargins(20, 16, 20, 20)
         
-        # 标题栏
         title_bar = QHBoxLayout()
         title_label = QLabel('编辑记录' if self.is_edit else '新增记录')
         title_label.setStyleSheet('font-family: "JetBrains Mono", monospace; font-size: 14px; font-weight: bold; letter-spacing: 2px;')
@@ -116,7 +106,6 @@ class RecordDialog(QDialog):
         title_bar.addWidget(close_btn)
         layout.addLayout(title_bar)
         
-        # 分隔线
         sep = QLabel()
         sep.setFixedHeight(2)
         sep.setStyleSheet('background-color: #000000;')
@@ -125,11 +114,10 @@ class RecordDialog(QDialog):
         form_layout = QFormLayout()
         form_layout.setSpacing(10)
         
-        # 日期
+        # 日期区间
         self.start_date_edit = QDateEdit()
         self.start_date_edit.setCalendarPopup(True)
         self.start_date_edit.setDisplayFormat('MM.dd')
-        
         today = QDate.currentDate()
         day_of_week = today.dayOfWeek()
         monday = today.addDays(-(day_of_week - 1))
@@ -178,6 +166,16 @@ class RecordDialog(QDialog):
         self.hero_consume_edit.setPlaceholderText('如: 5000 或 0')
         form_layout.addRow('英雄消费:', self.hero_consume_edit)
         
+        # 团牌
+        self.team_mark_edit = QLineEdit()
+        self.team_mark_edit.setPlaceholderText('团牌名称（可选）')
+        form_layout.addRow('团牌:', self.team_mark_edit)
+        
+        # 掉落
+        self.drop_info_edit = QLineEdit()
+        self.drop_info_edit.setPlaceholderText('掉落物品（可选）')
+        form_layout.addRow('掉落:', self.drop_info_edit)
+        
         # 总工资预览
         self.total_preview = QLabel('总工资: 0')
         self.total_preview.setStyleSheet('font-weight: bold; font-size: 14px; padding: 4px 0px;')
@@ -205,7 +203,9 @@ class RecordDialog(QDialog):
         self.setLayout(layout)
     
     def _load_record(self):
-        _, date_range, name, faction, n_sal, n_con, h_sal, h_con, _ = self.record
+        _, date_range, name, faction, n_sal, n_con, h_sal, h_con, total, *extra = self.record
+        team_mark = extra[0] if len(extra) > 0 else ''
+        drop_info = extra[1] if len(extra) > 1 else ''
         
         parts = date_range.split('-')
         if len(parts) == 2:
@@ -222,6 +222,8 @@ class RecordDialog(QDialog):
         self.normal_consume_edit.setText(number_to_brick(n_con))
         self.hero_salary_edit.setText(number_to_brick(h_sal))
         self.hero_consume_edit.setText(number_to_brick(h_con))
+        self.team_mark_edit.setText(team_mark)
+        self.drop_info_edit.setText(drop_info)
         self._update_preview()
     
     def _update_preview(self):
@@ -254,8 +256,11 @@ class RecordDialog(QDialog):
         n_con = parse_brick_input(self.normal_consume_edit.text())
         h_sal = parse_brick_input(self.hero_salary_edit.text())
         h_con = parse_brick_input(self.hero_consume_edit.text())
+        team_mark = self.team_mark_edit.text().strip()
+        drop_info = self.drop_info_edit.text().strip()
         
-        self.result_data = (date_range, start_str, end_str, name, faction, n_sal, n_con, h_sal, h_con)
+        self.result_data = (date_range, start_str, end_str, name, faction,
+                            n_sal, n_con, h_sal, h_con, team_mark, drop_info)
         self.accept()
     
     def get_data(self):
