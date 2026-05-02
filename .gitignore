@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.exe
+build/
+dist/
+*.spec
+salary_data.db
+.env
+.venv/
+venv/
+.idea/
+.vscode/
+*.log
