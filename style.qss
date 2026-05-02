@@ -151,12 +151,9 @@ QTableView {
     gridline-color: #E5E5E5;
     font-family: "JetBrains Mono", monospace;
     font-size: 13px;
-    selection-background-color: #000000;
-    selection-color: #FFFFFF;
     selection-background-color: #E5E5E5;
     selection-color: #000000;
     outline: none;
-    outline-color: #FFFFFF;
     show-decoration-selected: 0;
 }
 
@@ -204,6 +201,11 @@ QStatusBar {
     letter-spacing: 1px;
     border-top: 2px solid #000000;
     padding: 2px 12px;
+}
+
+QStatusBar QWidget {
+    background-color: transparent;
+    color: #FFFFFF;
 }
 
 QStatusBar QLabel {
