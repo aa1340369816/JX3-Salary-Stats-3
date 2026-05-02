@@ -1,6 +1,6 @@
 """
 主窗口 - 剑网三副本工资统计
-手动保存（编辑/新增/删除全进缓存）+ 保存后可撤销/重做（30步）
+手动保存（编辑/新增/删除全进缓存）+ 保存后可撤销/重做（30步，保持操作顺序）
 """
 
 import os
@@ -62,7 +62,7 @@ class MainWindow(QMainWindow):
         self.pending_deletes = []      # 待删除的真实ID
         self.pending_edits = {}        # {真实ID: 完整新记录}
 
-        # 撤销 / 重做栈（支持缓存操作和数据库操作）
+        # 撤销 / 重做栈
         self.undo_stack = []
         self.redo_stack = []
         self.max_history = 30
@@ -86,7 +86,7 @@ class MainWindow(QMainWindow):
         self.redo_shortcut = QShortcut(QKeySequence('Ctrl+Y'), self)
         self.redo_shortcut.activated.connect(self._on_redo)
 
-    # ---------- UI 构建（未动） ----------
+    # ---------- UI 构建 ----------
     def _init_ui(self):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -231,10 +231,7 @@ class MainWindow(QMainWindow):
     def _save_settings(self):
         try:
             with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
-                json.dump({
-                    'visible_columns': self.visible_columns,
-                    'column_order': self.column_order
-                }, f)
+                json.dump({'visible_columns': self.visible_columns, 'column_order': self.column_order}, f)
         except:
             pass
 
@@ -262,8 +259,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         unsaved = len(self.pending_records) + len(self.pending_deletes) + len(self.pending_edits)
         if unsaved > 0:
-            ok = confirm_action(self, '未保存的更改',
-                                f'有 {unsaved} 条未保存的更改\n\n确定不保存就关闭吗？')
+            ok = confirm_action(self, '未保存的更改', f'有 {unsaved} 条未保存的更改\n\n确定不保存就关闭吗？')
             if not ok:
                 event.ignore()
                 return
@@ -590,7 +586,7 @@ class MainWindow(QMainWindow):
         self.redo_stack.clear()
         self._refresh_data()
 
-    # ---------- 手动保存（不清空撤销栈，转为数据库操作记录） ----------
+    # ---------- 手动保存（保持操作顺序） ----------
     def _on_save(self):
         if not self.pending_records and not self.pending_deletes and not self.pending_edits:
             show_message(self, '提示', '没有需要保存的更改')
@@ -607,70 +603,107 @@ class MainWindow(QMainWindow):
         if not ok:
             return
 
-        # 构建新的撤销栈（数据库操作）
-        new_undo = []
-        errors = []
+        # 第一步：收集撤销栈中需要的信息（old_record、new_record等）
+        # 构建映射：新增项索引 -> 最终数据
+        add_data_map = {}   # index -> final data (11元组)
+        for i, pr in enumerate(self.pending_records):
+            add_data_map[i] = pr
 
-        # 1. 执行删除，记录 delete_db
+        # 编辑项：record_id -> (old_record, new_record)
+        edit_map = {}
+        for rid, new_rec in self.pending_edits.items():
+            old_rec = None
+            all_db = get_all_records(None)
+            for r in all_db:
+                if r[0] == rid:
+                    old_rec = r
+                    break
+            if old_rec:
+                edit_map[rid] = (old_rec, new_rec)
+
+        # 删除项：record_id -> deleted_row
+        delete_map = {}
         for rid in self.pending_deletes:
-            deleted_row = None
+            row = None
             all_db = get_all_records(None)
             for r in all_db:
                 if r[0] == rid:
-                    deleted_row = r
+                    row = r
                     break
-            if deleted_row:
-                try:
-                    delete_record(rid)
-                    new_undo.append({
-                        'type': 'delete_db',
-                        'record_id': rid,
-                        'deleted_row': deleted_row
-                    })
-                except Exception as e:
-                    errors.append(f'删除失败: {e}')
+            if row:
+                delete_map[rid] = row
 
-        # 2. 执行编辑，记录 edit_db
+        # 第二步：执行数据库操作（删除、编辑、新增）
+        errors = []
+        for rid in self.pending_deletes:
+            try:
+                delete_record(rid)
+            except Exception as e:
+                errors.append(f'删除失败: {e}')
+
         for rid, new_record in self.pending_edits.items():
-            old_record = None
-            all_db = get_all_records(None)
-            for r in all_db:
-                if r[0] == rid:
-                    old_record = r
-                    break
-            if old_record is None:
-                continue
             try:
                 update_record(rid, new_record[1], '', '', new_record[2], new_record[3],
                               new_record[4], new_record[5], new_record[6], new_record[7],
                               new_record[9] if len(new_record) > 9 else '',
                               new_record[10] if len(new_record) > 10 else '')
-                new_undo.append({
-                    'type': 'edit_db',
-                    'record_id': rid,
-                    'old_record': old_record,
-                    'new_record': new_record
-                })
             except Exception as e:
                 errors.append(f'编辑失败 (id={rid}): {e}')
 
-        # 3. 执行新增，记录 add_db
-        for pr in self.pending_records:
+        # 记录新增记录的真实 ID（按顺序）
+        new_id_map = {}  # index -> new_id
+        for i, pr in enumerate(self.pending_records):
             try:
                 new_id = add_record(*pr)
-                # 获取插入后的完整行
-                with get_connection() as conn:
-                    cur = conn.cursor()
-                    cur.execute('SELECT * FROM salary_records WHERE id=?', (new_id,))
-                    inserted_row = cur.fetchone()
-                if inserted_row:
-                    new_undo.append({
-                        'type': 'add_db',
-                        'record_id': new_id,
-                        'inserted_row': inserted_row
-                    })
+                new_id_map[i] = new_id
             except Exception as e:
                 errors.append(f'新增失败: {e}')
+
+        # 获取新增记录的完整行（用于撤销恢复）
+        inserted_rows = {}
+        for i, new_id in new_id_map.items():
+            with get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute('SELECT * FROM salary_records WHERE id=?', (new_id,))
+                row = cur.fetchone()
+                if row:
+                    inserted_rows[i] = row
+
+        # 第三步：将原有撤销栈转换为数据库操作栈，保持原顺序
+        new_undo = []
+        for item in self.undo_stack:
+            if item['type'] == 'edit':
+                rid = item['record_id']
+                if rid in edit_map:
+                    old_rec, new_rec = edit_map[rid]
+                    new_undo.append({
+                        'type': 'edit_db',
+                        'record_id': rid,
+                        'old_record': old_rec,
+                        'new_record': new_rec
+                    })
+            elif item['type'] == 'add':
+                idx = item['index']
+                if idx in new_id_map and idx in inserted_rows:
+                    new_undo.append({
+                        'type': 'add_db',
+                        'record_id': new_id_map[idx],
+                        'inserted_row': inserted_rows[idx]
+                    })
+            elif item['type'] == 'delete':
+                rid = item['record_id']
+                if rid in delete_map:
+                    new_undo.append({
+                        'type': 'delete_db',
+                        'record_id': rid,
+                        'deleted_row': delete_map[rid]
+                    })
+            elif item['type'] == 'delete_pending':
+                # 缓存删除，保存后不存在，跳过
+                pass
+            elif item['type'] == 'edit_pending':
+                # 编辑新增缓存行，保存后合并到新增，跳过
+                pass
 
         # 替换撤销栈
         self.undo_stack = new_undo
@@ -779,27 +812,27 @@ class MainWindow(QMainWindow):
 
         item = self.undo_stack.pop()
         try:
-            # 缓存操作类型（保存前的操作）
+            # 缓存操作（保存前）
             if item['type'] == 'edit':
                 rid = item['record_id']
-                old_record = item['old_record']
-                new_record = item['new_record']
+                old_rec = item['old_record']
+                new_rec = item['new_record']
                 all_db = get_all_records(None)
-                db_record = None
+                db_rec = None
                 for r in all_db:
                     if r[0] == rid:
-                        db_record = r
+                        db_rec = r
                         break
-                if db_record and old_record == db_record:
+                if db_rec and old_rec == db_rec:
                     if rid in self.pending_edits:
                         del self.pending_edits[rid]
                 else:
-                    self.pending_edits[rid] = old_record
+                    self.pending_edits[rid] = old_rec
                 self.redo_stack.append({
                     'type': 'edit',
                     'record_id': rid,
-                    'old_record': new_record,
-                    'new_record': old_record
+                    'old_record': new_rec,
+                    'new_record': old_rec
                 })
 
             elif item['type'] == 'edit_pending':
@@ -848,7 +881,7 @@ class MainWindow(QMainWindow):
                     'data': data
                 })
 
-            # 数据库操作类型（保存后的操作）
+            # 数据库操作（保存后）
             elif item['type'] == 'edit_db':
                 old = item['old_record']
                 new_r = item['new_record']
@@ -909,13 +942,13 @@ class MainWindow(QMainWindow):
             # 缓存类型
             if item['type'] == 'edit':
                 rid = item['record_id']
-                new_record = item['old_record']  # 注意重做栈存储的 old_record 是重做目标
-                self.pending_edits[rid] = new_record
+                new_rec = item['old_record']  # 重做栈存储的 old_record 是重做目标
+                self.pending_edits[rid] = new_rec
                 self._push_undo({
                     'type': 'edit',
                     'record_id': rid,
                     'old_record': item['new_record'],
-                    'new_record': new_record
+                    'new_record': new_rec
                 })
 
             elif item['type'] == 'edit_pending':
