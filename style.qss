@@ -1,0 +1,445 @@
+/* ============================================
+   剑网三 副本工资统计 - Minimalist Monochrome
+   ============================================ */
+
+/* --- 全局 --- */
+QWidget {
+    background-color: #FFFFFF;
+    color: #000000;
+    font-family: "Source Serif 4", Georgia, serif;
+    font-size: 14px;
+    border-radius: 0px;
+}
+
+/* --- 主窗口 --- */
+QMainWindow {
+    background-color: #FFFFFF;
+    border: 2px solid #000000;
+}
+
+/* --- 标题 --- */
+QLabel#titleLabel {
+    font-family: "Playfair Display", Georgia, serif;
+    font-size: 20px;
+    font-weight: bold;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #000000;
+    padding: 8px 0px;
+}
+
+/* --- 自定义标题栏 --- */
+#titleBar {
+    background-color: #000000;
+    border-bottom: 2px solid #000000;
+}
+
+#barTitle {
+    color: #FFFFFF;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    font-weight: bold;
+    letter-spacing: 3px;
+    background-color: transparent;
+}
+
+#minBtn, #closeBtn {
+    background-color: transparent;
+    color: #FFFFFF;
+    border: none;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 14px;
+    padding: 0px;
+}
+
+#minBtn:hover, #closeBtn:hover {
+    background-color: #333333;
+}
+
+#closeBtn:hover {
+    background-color: #000000;
+    color: #FFFFFF;
+}
+
+/* --- 按钮通用 --- */
+QPushButton {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    padding: 8px 20px;
+    border: 2px solid #000000;
+    background-color: #FFFFFF;
+    color: #000000;
+    border-radius: 0px;
+}
+
+QPushButton:hover {
+    background-color: #000000;
+    color: #FFFFFF;
+}
+
+QPushButton:pressed {
+    background-color: #000000;
+    color: #FFFFFF;
+}
+
+/* --- 保存按钮 --- */
+QPushButton#saveBtn {
+    background-color: #000000;
+    color: #FFFFFF;
+    border: 2px solid #000000;
+}
+
+QPushButton#saveBtn:hover {
+    background-color: #FFFFFF;
+    color: #000000;
+}
+
+QPushButton#saveBtn:disabled {
+    background-color: #E5E5E5;
+    color: #999999;
+    border-color: #E5E5E5;
+}
+
+/* --- 下拉框 --- */
+QComboBox {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    padding: 6px 12px;
+    border: 2px solid #000000;
+    background-color: #FFFFFF;
+    color: #000000;
+    border-radius: 0px;
+    min-width: 120px;
+}
+
+QComboBox:hover {
+    background-color: #000000;
+    color: #FFFFFF;
+}
+
+QComboBox::drop-down {
+    border: none;
+    width: 20px;
+}
+
+QComboBox::down-arrow {
+    image: none;
+    border-left: 2px solid #000000;
+    border-bottom: 2px solid #000000;
+    width: 8px;
+    height: 8px;
+    margin-right: 4px;
+}
+
+QComboBox QAbstractItemView {
+    background-color: #FFFFFF;
+    border: 2px solid #000000;
+    border-radius: 0px;
+    selection-background-color: #000000;
+    selection-color: #FFFFFF;
+    outline: none;
+}
+
+/* --- 表格 --- */
+QTableView {
+    background-color: #FFFFFF;
+    border: 2px solid #000000;
+    border-radius: 0px;
+    gridline-color: #E5E5E5;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 13px;
+    selection-background-color: #000000;
+    selection-color: #FFFFFF;
+    selection-background-color: #E5E5E5;
+    selection-color: #000000;
+    outline: none;
+    outline-color: #FFFFFF;
+    show-decoration-selected: 0;
+}
+
+QTableView::item {
+    padding: 8px 12px;
+    border-bottom: 1px solid #E5E5E5;
+    border-radius: 0px;
+}
+
+QTableView::item:hover {
+    background-color: #F5F5F5;
+}
+
+QTableView::item:selected {
+    background-color: #E5E5E5;
+    color: #000000;
+    border: none;
+    outline: none;
+}
+
+QHeaderView::section {
+    background-color: #000000;
+    color: #FFFFFF;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    padding: 10px 12px;
+    border: none;
+    border-right: 1px solid #333333;
+    border-radius: 0px;
+}
+
+QHeaderView::section:last {
+    border-right: none;
+}
+
+/* --- 状态栏 --- */
+QStatusBar {
+    background-color: #000000;
+    color: #FFFFFF;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 1px;
+    border-top: 2px solid #000000;
+    padding: 2px 12px;
+}
+
+QStatusBar QLabel {
+    color: #FFFFFF;
+    background-color: transparent;
+}
+
+/* --- 滚动条 --- */
+QScrollBar:vertical {
+    background-color: #FFFFFF;
+    width: 8px;
+    border: none;
+    border-radius: 0px;
+}
+
+QScrollBar::handle:vertical {
+    background-color: #000000;
+    min-height: 30px;
+}
+
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+/* --- 菜单 --- */
+QMenu {
+    background-color: #FFFFFF;
+    border: 2px solid #000000;
+    border-radius: 0px;
+    padding: 4px;
+}
+
+QMenu::item {
+    padding: 8px 24px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+}
+
+QMenu::item:selected {
+    background-color: #000000;
+    color: #FFFFFF;
+}
+
+/* --- 弹窗 --- */
+QMessageBox {
+    background-color: #FFFFFF;
+    border: 2px solid #000000;
+}
+
+QMessageBox QLabel {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    color: #000000;
+    background-color: transparent;
+}
+
+QMessageBox QPushButton {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    padding: 8px 24px;
+    border: 2px solid #000000;
+    border-radius: 0px;
+    background-color: #000000;
+    color: #FFFFFF;
+}
+
+QMessageBox QPushButton:hover {
+    background-color: #FFFFFF;
+    color: #000000;
+}
+
+/* --- 输入框 --- */
+QLineEdit {
+    border: 2px solid #000000;
+    border-radius: 0px;
+    padding: 8px 12px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 13px;
+    background-color: #FFFFFF;
+    color: #000000;
+}
+
+QLineEdit:focus {
+    border: 4px solid #000000;
+}
+
+/* --- 日期编辑器 --- */
+QDateEdit {
+    border: 2px solid #000000;
+    border-radius: 0px;
+    padding: 6px 10px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    background-color: #FFFFFF;
+}
+
+QDateEdit:focus {
+    border: 4px solid #000000;
+}
+
+QDateEdit::drop-down {
+    border: none;
+    width: 20px;
+}
+
+/* --- 对话框 --- */
+QDialog {
+    background-color: #FFFFFF;
+    border: 2px solid #000000;
+}
+
+QDialog QLabel {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    color: #000000;
+    background-color: transparent;
+}
+
+QDialog QLineEdit {
+    border: 2px solid #000000;
+    border-radius: 0px;
+    padding: 8px 12px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 13px;
+    background-color: #FFFFFF;
+    color: #000000;
+}
+
+QDialog QLineEdit:focus {
+    border: 4px solid #000000;
+}
+
+QDialog QComboBox {
+    border: 2px solid #000000;
+    border-radius: 0px;
+    padding: 6px 12px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    background-color: #FFFFFF;
+    color: #000000;
+}
+
+QDialog QPushButton {
+    border: 2px solid #000000;
+    border-radius: 0px;
+    padding: 8px 20px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    background-color: #000000;
+    color: #FFFFFF;
+}
+
+QDialog QPushButton:hover {
+    background-color: #FFFFFF;
+    color: #000000;
+}
+
+QDialog QDateEdit {
+    border: 2px solid #000000;
+    border-radius: 0px;
+    padding: 6px 10px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    background-color: #FFFFFF;
+}
+
+/* --- 文件对话框 --- */
+QFileDialog {
+    background-color: #FFFFFF;
+    border: 2px solid #000000;
+}
+
+QFileDialog QLabel {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    color: #000000;
+    background-color: transparent;
+}
+
+QFileDialog QLineEdit {
+    border: 2px solid #000000;
+    border-radius: 0px;
+    padding: 6px 10px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+}
+
+QFileDialog QPushButton {
+    border: 2px solid #000000;
+    border-radius: 0px;
+    padding: 6px 16px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    background-color: #000000;
+    color: #FFFFFF;
+}
+
+QFileDialog QPushButton:hover {
+    background-color: #FFFFFF;
+    color: #000000;
+}
+
+QFileDialog QTreeView, QFileDialog QListView {
+    border: 2px solid #000000;
+    border-radius: 0px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    selection-background-color: #000000;
+    selection-color: #FFFFFF;
+}
+
+QFileDialog QComboBox {
+    border: 2px solid #000000;
+    border-radius: 0px;
+    padding: 4px 8px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+}
+
+QTableView:focus {
+    outline: none;
+}
+
+QTableView QLineEdit {
+    border: 1px solid #CCCCCC;
+    background-color: #FFFFFF;
+    color: #000000;
+    selection-background-color: #E5E5E5;
+}
