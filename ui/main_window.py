@@ -1,5 +1,5 @@
 """
-主窗口 - 剑网三副本工资统计（含团牌、掉落，列自定义）
+主窗口 - 剑网三副本工资统计（含团牌、掉落，列自定义，修复闪退）
 """
 
 import os
@@ -60,7 +60,7 @@ class MainWindow(QMainWindow):
         self.pending_deletes = []
         self.undo_stack = []
 
-        # 列设置加载
+        # 加载列设置
         self.settings = self._load_settings()
         self.visible_columns = self.settings.get('visible_columns', list(SalaryTableModel.HEADERS))
         self.column_order = self.settings.get('column_order', list(SalaryTableModel.HEADERS))
@@ -69,7 +69,7 @@ class MainWindow(QMainWindow):
         self._init_ui()
         self._set_default_week()
 
-        # 应用保存的列顺序和可见性
+        # 应用列可见性和顺序（无移动section，只通过模型设置）
         self._apply_column_settings()
 
         self._refresh_data()
@@ -81,7 +81,7 @@ class MainWindow(QMainWindow):
 
     def _init_ui(self):
         central_widget = QWidget()
-        central_widget.setObjectName('centralGlass')  # 保留，不影响功能
+        central_widget.setObjectName('centralGlass')
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
         main_layout.setSpacing(0)
@@ -110,7 +110,7 @@ class MainWindow(QMainWindow):
         title_bar_layout.addWidget(close_btn)
         main_layout.addWidget(title_bar)
 
-        # 内容
+        # 内容区域
         self.content_widget = QWidget()
         content_layout = QVBoxLayout(self.content_widget)
         content_layout.setSpacing(8)
@@ -190,28 +190,16 @@ class MainWindow(QMainWindow):
         self._drag_pos = None
 
     def _apply_column_settings(self):
-        """应用保存的列可见性和顺序"""
-        # 设置可见列
+        """根据保存的顺序调整 visible_columns，并通过模型设置（不再手动移动section）"""
+        order = self.column_order if self.column_order else SalaryTableModel.HEADERS
+        # 过滤出仍然可用的列
+        ordered_visible = [name for name in order if name in self.visible_columns and name in SalaryTableModel.HEADERS]
+        # 补充可能遗漏的新增列
+        for name in SalaryTableModel.HEADERS:
+            if name not in ordered_visible and name in self.visible_columns:
+                ordered_visible.append(name)
+        self.visible_columns = ordered_visible
         self.table_model.set_visible_columns(self.visible_columns)
-
-        # 恢复列顺序：通过移动 section 实现
-        header = self.table_view.horizontalHeader()
-        # 先把所有列移动到默认位置，再按保存顺序调整
-        # 当前可见列的顺序就是 visible_columns，需要将其映射到 visual index
-        # 默认可见列的顺序即 visual index，因此我们只需要按 column_order 重新排列：
-        # 但 column_order 可能包含已隐藏的列，我们仅对当前可见列排序
-        # 获取当前可见列名 -> 期望位置的映射
-        target_positions = {name: i for i, name in enumerate(self.column_order)}
-        # 获取当前视觉顺序
-        current_visual = [self.table_model.visible_columns[i] for i in range(len(self.visible_columns))]
-        # 如果相同，不操作；否则逐个移动
-        if current_visual != self.column_order[:len(self.visible_columns)]:
-            # 按目标顺序移动 section
-            for desired_idx, col_name in enumerate(self.column_order):
-                if col_name in self.visible_columns:
-                    current_idx = self.table_model.visible_columns.index(col_name)
-                    if current_idx != desired_idx:
-                        header.moveSection(current_idx, desired_idx)
 
     def _show_column_menu(self):
         menu = QMenu(self)
@@ -226,7 +214,7 @@ class MainWindow(QMainWindow):
     def _toggle_column(self, col_name, visible):
         if visible and col_name not in self.visible_columns:
             self.visible_columns.append(col_name)
-            # 按 column_order 排序，保持顺序
+            # 按保存的顺序排序
             order = self.column_order if self.column_order else SalaryTableModel.HEADERS
             self.visible_columns.sort(key=lambda x: order.index(x) if x in order else len(order))
         elif not visible and col_name in self.visible_columns:
@@ -237,16 +225,16 @@ class MainWindow(QMainWindow):
         self._refresh_data()
 
     def _on_section_moved(self, logicalIndex, oldVisualIndex, newVisualIndex):
-        # 保存当前视觉顺序
+        """用户拖拽列头后更新内部顺序并保存，不重置模型"""
         header = self.table_view.horizontalHeader()
         visual_order = []
         for visual in range(header.count()):
             logical = header.logicalIndex(visual)
             visual_order.append(self.table_model.visible_columns[logical])
+        # 仅更新模型内部顺序（不触发reset）
+        self.table_model.visible_columns = visual_order
         self.column_order = visual_order
         self._save_settings()
-        # 刷新模型，虽然beginResetModel会有闪烁，但这里可以接受
-        self.table_model.set_visible_columns(visual_order)
 
     def _save_settings(self):
         try:
@@ -267,11 +255,7 @@ class MainWindow(QMainWindow):
                 pass
         return {}
 
-    # ---------- 以下方法保持之前的优化（计算当前周、数据刷新等）----------
-    # 注意：_refresh_data 中的聚合逻辑需要适配新字段（team_mark, drop_info）
-    # 在聚合时，团牌和掉落合并？简单起见，聚合视图不显示这两列（取空或合并第一个）。
-    # 我们稍微修改聚合逻辑，让聚合时团牌和掉落为空，只统计工资。
-
+    # ---------- 原有功能方法（窗口拖拽、关闭确认、日期计算、数据刷新等）----------
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
@@ -334,7 +318,6 @@ class MainWindow(QMainWindow):
         for r in last_week_records:
             name = r[2]
             if name not in existing_names:
-                # 记录格式: date_range, start, end, name, faction, n_sal, n_con, h_sal, h_con, team_mark, drop_info
                 new_record = (self._default_week_str, start_date, end_date, name, r[3], 0, 0, 0, 0, '', '')
                 self.pending_records.append(new_record)
                 existing_names.add(name)
@@ -361,7 +344,6 @@ class MainWindow(QMainWindow):
 
         # 合并缓存新增
         for i, pr in enumerate(self.pending_records):
-            # pr: (date_range, start, end, name, faction, n_sal, n_con, h_sal, h_con, team, drop)
             temp_id = -(i + 1)
             total = pr[5] + pr[7] - pr[6] - pr[8]
             temp_record = (temp_id, pr[0], pr[3], pr[4], pr[5], pr[6], pr[7], pr[8], total, pr[9], pr[10])
@@ -370,7 +352,7 @@ class MainWindow(QMainWindow):
 
         base_records = [r for r in base_records if r[0] not in self.pending_deletes]
 
-        # 全部视图按角色聚合（忽略团牌和掉落）
+        # 全部视图聚合
         if date_filter is None:
             aggregated = {}
             for r in base_records:
@@ -388,7 +370,6 @@ class MainWindow(QMainWindow):
             for i, (name, data) in enumerate(aggregated.items()):
                 faction = data[0]
                 total = data[1] + data[3] - data[2] - data[4]
-                # 聚合行无团牌、掉落，空字符串
                 base_records.append((-i - 1, '', name, faction, data[1], data[2], data[3], data[4], total, '', ''))
             base_records.sort(key=lambda r: r[2])
             self.table_model.set_editable_columns([])
@@ -399,7 +380,7 @@ class MainWindow(QMainWindow):
             self.add_btn.setEnabled(True)
             self.delete_btn.setEnabled(True)
 
-        # 门派过滤器更新
+        # 更新门派过滤器
         current_faction = self.faction_filter_combo.currentText()
         self.faction_filter_combo.blockSignals(True)
         self.faction_filter_combo.clear()
@@ -414,7 +395,7 @@ class MainWindow(QMainWindow):
             self.faction_filter_combo.setCurrentIndex(0)
         self.faction_filter_combo.blockSignals(False)
 
-        # 日期过滤器更新
+        # 更新日期过滤器
         self.date_filter_combo.blockSignals(True)
         self.date_filter_combo.clear()
         self.date_filter_combo.addItem('全部')
@@ -471,7 +452,6 @@ class MainWindow(QMainWindow):
         if record is None:
             return
 
-        # 备份旧值用于撤销（需要包含团牌、掉落）
         field_map = {'角色名': 2, '门派': 3, '普通工资': 4, '普通消费': 5, '英雄工资': 6, '英雄消费': 7, '团牌': 9, '掉落': 10}
         col_name = self.table_model.visible_columns[col]
         if col_name in field_map:
@@ -587,7 +567,6 @@ class MainWindow(QMainWindow):
         self._refresh_data()
 
     def _on_export(self):
-        # 导出当前筛选数据，遵循可见列和顺序
         data_records = [r for r in self.table_model.records if r[2] not in ('平均', '合计')]
         current_date = self.date_filter_combo.currentText()
         if not data_records:
@@ -607,11 +586,9 @@ class MainWindow(QMainWindow):
                 ws.cell(row=1, column=1, value=f'日期{current_date}')
             else:
                 ws.cell(row=1, column=1, value='日期全部')
-            # 写入表头（按当前可见列顺序）
             headers = self.table_model.visible_columns
             for i, h in enumerate(headers, 1):
                 ws.cell(row=3, column=i, value=h)
-            from core.utils import number_to_brick
             for row_idx, record in enumerate(data_records, 4):
                 for col_idx, col_name in enumerate(headers, 1):
                     idx = SalaryTableModel.FIELD_MAP[col_name]
@@ -628,10 +605,8 @@ class MainWindow(QMainWindow):
         dialog = RecordDialog(self)
         if dialog.exec() == RecordDialog.DialogCode.Accepted:
             data = dialog.get_data()
-            # dialog 返回的是旧的 9 元组？需要更新 RecordDialog 以包含团牌、掉落，先默认添加空字符串
-            # 临时处理：将 data 扩展至 11 元组
-            full_data = data + ('', '') if len(data) == 9 else data
-            self.pending_records.append(full_data)
+            # data 应为11元组（来自新RecordDialog）
+            self.pending_records.append(data)
             self._refresh_data()
 
     def _on_delete(self):
