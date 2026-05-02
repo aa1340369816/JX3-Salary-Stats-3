@@ -1,6 +1,6 @@
 """
 主窗口 - 剑网三副本工资统计
-手动保存 + 保存后可撤销/重做（保持操作顺序，修复新增行编辑撤销）
+手动保存 + 5分钟自动保存 + 保存后可撤销/重做（30步）
 """
 
 import os
@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QComboBox, QTableView, QHeaderView,
     QFileDialog, QLabel, QMenu
 )
-from PyQt6.QtCore import Qt, QDate
+from PyQt6.QtCore import Qt, QDate, QTimer
 from PyQt6.QtGui import QFont, QShortcut, QKeySequence, QAction
 
 from core.database import (
@@ -64,6 +64,11 @@ class MainWindow(QMainWindow):
         self.undo_stack = []
         self.redo_stack = []
         self.max_history = 30
+
+        # 自动保存定时器（5分钟无操作自动保存）
+        self.auto_save_timer = QTimer(self)
+        self.auto_save_timer.setSingleShot(True)
+        self.auto_save_timer.timeout.connect(self._auto_save)
 
         self.settings = self._load_settings()
         self.visible_columns = self.settings.get('visible_columns', list(SalaryTableModel.HEADERS))
@@ -307,6 +312,9 @@ class MainWindow(QMainWindow):
                 new_record = (self._default_week_str, start_date, end_date, name, r[3], 0, 0, 0, 0, '', '')
                 self.pending_records.append(new_record)
                 existing_names.add(name)
+        # 自动保存计时器启动（如果有新增缓存）
+        if self.pending_records:
+            self._reset_auto_save_timer()
 
     # ---------- 数据刷新 ----------
     def _refresh_data(self):
@@ -473,6 +481,7 @@ class MainWindow(QMainWindow):
                     })
                     self.redo_stack.clear()
                 self._update_stats()
+                self._reset_auto_save_timer()
             return
 
         new_record = tuple(record)
@@ -495,6 +504,7 @@ class MainWindow(QMainWindow):
         })
         self.redo_stack.clear()
         self._update_stats()
+        self._reset_auto_save_timer()
 
     def _update_stats(self):
         data_records = [r for r in self.table_model.records if r[2] not in ('平均', '合计')]
@@ -538,6 +548,7 @@ class MainWindow(QMainWindow):
             })
             self.redo_stack.clear()
             self._refresh_data()
+            self._reset_auto_save_timer()
 
     # ---------- 删除 ----------
     def _on_delete(self):
@@ -581,6 +592,19 @@ class MainWindow(QMainWindow):
                 })
         self.redo_stack.clear()
         self._refresh_data()
+        self._reset_auto_save_timer()
+
+    # ---------- 自动保存定时器 ----------
+    def _reset_auto_save_timer(self):
+        """重置自动保存计时器（5分钟）"""
+        self.auto_save_timer.start(5 * 60 * 1000)
+
+    def _auto_save(self):
+        """静默自动保存，无确认对话框"""
+        if not self.pending_records and not self.pending_deletes and not self.pending_edits:
+            return
+        self._perform_save(silent=True)
+        self.status_label.setText('已自动保存')
 
     # ---------- 手动保存 ----------
     def _on_save(self):
@@ -599,12 +623,21 @@ class MainWindow(QMainWindow):
         if not ok:
             return
 
+        self._perform_save(silent=False)
+        self._reset_auto_save_timer()
+
+    def _perform_save(self, silent=False):
+        """
+        执行实际的保存操作。
+        silent=True 时不弹出成功/失败提示，仅更新状态栏。
+        """
         # 执行删除
+        errors = []
         for rid in self.pending_deletes:
             try:
                 delete_record(rid)
-            except Exception:
-                pass
+            except Exception as e:
+                errors.append(f'删除失败: {e}')
 
         # 执行编辑
         for rid, new_rec in self.pending_edits.items():
@@ -613,28 +646,27 @@ class MainWindow(QMainWindow):
                               new_rec[4], new_rec[5], new_rec[6], new_rec[7],
                               new_rec[9] if len(new_rec) > 9 else '',
                               new_rec[10] if len(new_rec) > 10 else '')
-            except Exception:
-                pass
+            except Exception as e:
+                errors.append(f'编辑失败 (id={rid}): {e}')
 
         # 执行新增，记录索引到新ID的映射
         new_id_map = {}
-        final_pr_data = {}   # index -> pending_records中的最终数据
+        final_pr_data = {}
         for i, pr in enumerate(self.pending_records):
             final_pr_data[i] = pr
             try:
                 new_id = add_record(*pr)
                 new_id_map[i] = new_id
-            except Exception:
-                pass
+            except Exception as e:
+                errors.append(f'新增失败: {e}')
 
-        # 构建新的撤销栈（遍历原undo_stack，转换为数据库操作）
+        # 构建新的撤销栈（将缓存操作转换为数据库操作记录）
         new_undo = []
         for item in self.undo_stack:
             if item['type'] == 'add':
                 idx = item['index']
                 if idx in new_id_map:
                     new_id = new_id_map[idx]
-                    # 获取插入后的完整数据库行
                     with get_connection() as conn:
                         cur = conn.cursor()
                         cur.execute('SELECT * FROM salary_records WHERE id=?', (new_id,))
@@ -647,7 +679,6 @@ class MainWindow(QMainWindow):
                         })
             elif item['type'] == 'edit':
                 rid = item['record_id']
-                # 确保该记录有编辑操作
                 if rid in self.pending_edits:
                     new_undo.append({
                         'type': 'edit_db',
@@ -656,15 +687,11 @@ class MainWindow(QMainWindow):
                         'new_record': item['new_record']
                     })
             elif item['type'] == 'edit_pending':
-                # 编辑新增缓存行 → 转换为数据库编辑
                 idx = item['pending_idx']
                 if idx in new_id_map and idx in final_pr_data:
                     new_id = new_id_map[idx]
-                    old_data = item['old_data']  # 原始新增数据
-                    new_data = item['new_data']  # 编辑后数据
-                    # 构造数据库记录格式（用于 update_record）
-                    def make_record(data):
-                        return (new_id, data[0], data[3], data[4], data[5], data[6], data[7], data[8], 0, data[9], data[10])
+                    old_data = item['old_data']
+                    new_data = item['new_data']
                     old_rec = (new_id, old_data[0], old_data[3], old_data[4], old_data[5], old_data[6], old_data[7], old_data[8], 0, old_data[9], old_data[10])
                     new_rec = (new_id, new_data[0], new_data[3], new_data[4], new_data[5], new_data[6], new_data[7], new_data[8], 0, new_data[9], new_data[10])
                     new_undo.append({
@@ -681,7 +708,6 @@ class MainWindow(QMainWindow):
                     'deleted_row': item['deleted_row']
                 })
             elif item['type'] == 'delete_pending':
-                # 跳过，保存后不存在
                 pass
 
         self.undo_stack = new_undo
@@ -691,7 +717,12 @@ class MainWindow(QMainWindow):
         self.pending_deletes.clear()
         self.pending_edits.clear()
 
-        show_message(self, '保存成功', '所有更改已保存')
+        if not silent:
+            if errors:
+                show_message(self, '部分失败', '\n'.join(errors), 'warning')
+            else:
+                show_message(self, '保存成功', '所有更改已保存')
+
         self._refresh_data()
 
     # ---------- 导入 ----------
@@ -825,8 +856,6 @@ class MainWindow(QMainWindow):
                     'record_id': row[0],
                     'deleted_row': row
                 })
-
-            # 缓存操作（极少情况，但也保留）
             elif item['type'] == 'edit':
                 rid = item['record_id']
                 old_rec = item['old_record']
@@ -922,7 +951,6 @@ class MainWindow(QMainWindow):
                     'record_id': row[0],
                     'deleted_row': row
                 })
-            # 缓存重做
             elif item['type'] == 'edit':
                 rid = item['record_id']
                 self.pending_edits[rid] = item['old_record']
