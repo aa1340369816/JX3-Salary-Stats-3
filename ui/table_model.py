@@ -1,5 +1,5 @@
 """
-表格数据模型（含团牌、掉落，安全算式支持）
+表格数据模型（含团牌、掉落，安全算式支持，修复 UnboundLocalError）
 """
 
 from PyQt6.QtCore import QAbstractTableModel, Qt
@@ -99,10 +99,8 @@ class NoBorderDelegate(QStyledItemDelegate):
 
 
 class SalaryTableModel(QAbstractTableModel):
-    # 默认列顺序（标题）
     HEADERS = ['角色名', '门派', '普通工资', '普通消费', '英雄工资', '英雄消费', '总工资', '团牌', '掉落']
 
-    # 字段映射：列名 -> record 中的索引（record 结构：[id, date_range, name(2), faction(3), n_sal(4), n_con(5), h_sal(6), h_con(7), total(8), team_mark(9), drop_info(10), ...表达式]）
     FIELD_MAP = {
         '角色名': 2, '门派': 3,
         '普通工资': 4, '普通消费': 5, '英雄工资': 6, '英雄消费': 7, '总工资': 8,
@@ -111,19 +109,17 @@ class SalaryTableModel(QAbstractTableModel):
 
     def __init__(self):
         super().__init__()
-        self.records = []          # 长度至少 15：索引 0-10 为数据，11-14 为表达式
+        self.records = []
         self.statistics = None
         self.show_stats = True
-        self.editable_columns = []  # 存储可编辑的列名列表
-        self.visible_columns = list(self.HEADERS)  # 当前可见列名（顺序即显示顺序）
-        self.column_order = list(self.HEADERS)    # 保存的列顺序
+        self.editable_columns = []
+        self.visible_columns = list(self.HEADERS)
+        self.column_order = list(self.HEADERS)
 
     def set_editable_columns(self, columns):
-        # columns: list of column names (string)
         self.editable_columns = columns
 
     def set_visible_columns(self, visible_names):
-        """设置可见列，并按 visible_names 顺序排列"""
         self.visible_columns = visible_names
         self.column_order = visible_names
         self.beginResetModel()
@@ -134,7 +130,6 @@ class SalaryTableModel(QAbstractTableModel):
         padded = []
         for r in records:
             r = list(r)
-            # 确保长度至少 15 (索引 0-10 数据，11-14 表达式)
             r.extend([''] * (15 - len(r)))
             padded.append(tuple(r))
         self.records = padded
@@ -155,8 +150,6 @@ class SalaryTableModel(QAbstractTableModel):
         row, col = index.row(), index.column()
         if self.show_stats and self.statistics and self.statistics.get('count', 0) > 0 and row >= len(self.records):
             return Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
-
-        # 根据当前可见列名判断是否可编辑
         col_name = self.visible_columns[col]
         if col_name in self.editable_columns:
             return Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEditable
@@ -165,24 +158,21 @@ class SalaryTableModel(QAbstractTableModel):
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
         if not index.isValid():
             return None
-        if role == 13:  # 隐藏焦点框
+        if role == 13:
             return None
         row, col = index.row(), index.column()
-
         if self.show_stats and self.statistics and self.statistics.get('count', 0) > 0 and row >= len(self.records):
             return self._get_stats_data(row - len(self.records), col, role)
-
         if row >= len(self.records):
             return None
         record = self.records[row]
-
+        col_name = self.visible_columns[col]
         if role == Qt.ItemDataRole.DisplayRole:
-            return self._format_cell(record, col)
+            return self._format_cell(record, col_name)
         elif role == Qt.ItemDataRole.EditRole:
-            return self._get_edit_value(record, col)
+            return self._get_edit_value(record, col_name)
         elif role == Qt.ItemDataRole.TextAlignmentRole:
-            col_name = self.visible_columns[col]
-            if col_name in ['普通工资', '普通消费', '英雄工资', '英雄消费', '总工资']:
+            if col_name in ('普通工资', '普通消费', '英雄工资', '英雄消费', '总工资'):
                 return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
             return Qt.AlignmentFlag.AlignCenter
         return None
@@ -196,25 +186,19 @@ class SalaryTableModel(QAbstractTableModel):
         col_name = self.visible_columns[col]
         if col_name not in self.editable_columns:
             return False
-
         record = list(self.records[row])
         value_str = str(value).strip() if value else ''
-
-        # 获取字段索引
         field_idx = self.FIELD_MAP[col_name]
         if col_name in ('角色名', '门派', '团牌', '掉落'):
             record[field_idx] = value_str
         elif col_name in ('普通工资', '普通消费', '英雄工资', '英雄消费'):
             result, expr = _parse_expr(value_str)
             record[field_idx] = result
-            # 表达式索引：普通工资->11, 普通消费->12, 英雄工资->13, 英雄消费->14
             expr_map = {'普通工资': 11, '普通消费': 12, '英雄工资': 13, '英雄消费': 14}
             expr_idx = expr_map[col_name]
             while len(record) <= expr_idx:
                 record.append('')
             record[expr_idx] = expr
-
-        # 重新计算总工资
         record[8] = record[4] + record[6] - record[5] - record[7]
         self.records[row] = tuple(record)
         self.dataChanged.emit(index, index, [Qt.ItemDataRole.DisplayRole])
@@ -226,8 +210,7 @@ class SalaryTableModel(QAbstractTableModel):
                 return self.visible_columns[section]
         return None
 
-    def _format_cell(self, record, col):
-        col_name = self.visible_columns[col]
+    def _format_cell(self, record, col_name):
         idx = self.FIELD_MAP[col_name]
         if col_name == '总工资':
             return number_to_brick(record[8])
@@ -236,8 +219,7 @@ class SalaryTableModel(QAbstractTableModel):
         else:
             return str(record[idx]) if record[idx] is not None else ''
 
-    def _get_edit_value(self, record, col):
-        col_name = self.visible_columns[col]
+    def _get_edit_value(self, record, col_name):
         if col_name in ('普通工资', '普通消费', '英雄工资', '英雄消费'):
             expr_map = {'普通工资': 11, '普通消费': 12, '英雄工资': 13, '英雄消费': 14}
             expr_idx = expr_map[col_name]
@@ -250,10 +232,10 @@ class SalaryTableModel(QAbstractTableModel):
     def _get_stats_data(self, stats_row, col, role):
         if not self.statistics:
             return None
+        col_name = self.visible_columns[col]  # 提前定义，避免 UnboundLocalError
         if role == Qt.ItemDataRole.DisplayRole:
             is_avg = (stats_row == 0)
             label = '平均' if is_avg else '合计'
-            col_name = self.visible_columns[col]
             if col_name == '角色名':
                 return label
             elif col_name in ('门派', '团牌', '掉落'):
@@ -270,7 +252,7 @@ class SalaryTableModel(QAbstractTableModel):
                 key = prefix + base_key
                 return number_to_brick(self.statistics.get(key, 0))
         elif role == Qt.ItemDataRole.TextAlignmentRole:
-            if col_name in ['普通工资', '普通消费', '英雄工资', '英雄消费', '总工资']:
+            if col_name in ('普通工资', '普通消费', '英雄工资', '英雄消费', '总工资'):
                 return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
             return Qt.AlignmentFlag.AlignCenter
         elif role == Qt.ItemDataRole.FontRole:
