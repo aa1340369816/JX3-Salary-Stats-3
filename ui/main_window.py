@@ -1,5 +1,5 @@
 """
-主窗口 - 剑网三副本工资统计（含团牌、掉落，列自定义）
+主窗口 - 剑网三副本工资统计（含团牌、掉落，列自定义，修复首次启动无法新增）
 """
 
 import os
@@ -386,18 +386,16 @@ class MainWindow(QMainWindow):
             self.faction_filter_combo.setCurrentIndex(0)
         self.faction_filter_combo.blockSignals(False)
 
-        # 日期筛选
+        # 日期筛选（修复首次启动无法新增）
         self.date_filter_combo.blockSignals(True)
         self.date_filter_combo.clear()
         self.date_filter_combo.addItem('全部')
         for d in get_date_list():
             self.date_filter_combo.addItem(d)
-        idx = self.date_filter_combo.findText(current_date)
-        if idx >= 0:
-            self.date_filter_combo.setCurrentIndex(idx)
-        else:
-            if self.date_filter_combo.currentText() != current_date:
-                self.date_filter_combo.setCurrentText(current_date)
+        # 确保当前选中的日期始终在列表中
+        if current_date and current_date != '全部' and self.date_filter_combo.findText(current_date) == -1:
+            self.date_filter_combo.addItem(current_date)
+        self.date_filter_combo.setCurrentText(current_date)
         self.date_filter_combo.blockSignals(False)
 
         faction_filter = self.faction_filter_combo.currentText()
