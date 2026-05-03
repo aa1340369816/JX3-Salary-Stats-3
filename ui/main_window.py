@@ -1,6 +1,6 @@
 """
 主窗口 - 剑网三副本工资统计
-手动保存 + 5分钟自动保存 + 保存后可撤销/重做（30步）
+手动保存 + 5分钟自动保存 + 保存后可撤销/重做（30步） + 窗口高度自适应
 """
 
 import os
@@ -54,7 +54,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle('剑网三 副本工资统计')
-        self.setMinimumSize(1200, 650)
+        self.setMinimumWidth(1200)  # 仅限制宽度，高度自适应
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
 
         self.pending_records = []      # 待新增
@@ -87,7 +87,7 @@ class MainWindow(QMainWindow):
         self.redo_shortcut = QShortcut(QKeySequence('Ctrl+Y'), self)
         self.redo_shortcut.activated.connect(self._on_redo)
 
-    # ---------- UI 构建（不变） ----------
+    # ---------- UI 构建 ----------
     def _init_ui(self):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -312,7 +312,6 @@ class MainWindow(QMainWindow):
                 new_record = (self._default_week_str, start_date, end_date, name, r[3], 0, 0, 0, 0, '', '')
                 self.pending_records.append(new_record)
                 existing_names.add(name)
-        # 自动保存计时器启动（如果有新增缓存）
         if self.pending_records:
             self._reset_auto_save_timer()
 
@@ -435,6 +434,36 @@ class MainWindow(QMainWindow):
         else:
             self.status_label.setText(f'共 {len(data_records)} 条记录')
             self.save_btn.setEnabled(False)
+
+        # 自动调整窗口高度
+        self._adjust_window_height(len(data_records))
+
+    def _adjust_window_height(self, data_count):
+        """根据数据行数动态调整窗口高度，使其恰好显示所有行"""
+        # 如果窗口最大化，则不调整
+        if self.isMaximized():
+            return
+
+        # 计算表格所需高度
+        header_height = self.table_view.horizontalHeader().height()
+        row_height = self.table_view.rowHeight(0) if data_count > 0 else 30
+        stats_rows = 2 if self.table_model.show_stats and data_count > 0 else 0
+        total_rows = data_count + stats_rows
+        table_height = header_height + row_height * total_rows + 4  # 4px 边框补偿
+
+        # 固定部件高度（标题栏、工具栏、状态栏、边距等）
+        fixed_height = 40 + 55 + 30 + 20  # 近似值
+
+        ideal_height = table_height + fixed_height
+
+        # 限制最大高度为屏幕可用高度的90%
+        screen = self.screen().availableGeometry()
+        max_height = int(screen.height() * 0.9)
+        ideal_height = min(ideal_height, max_height)
+        # 最小高度400
+        ideal_height = max(ideal_height, 400)
+
+        self.resize(self.width(), ideal_height)
 
     def _filter_data(self):
         self._refresh_data()
@@ -596,11 +625,9 @@ class MainWindow(QMainWindow):
 
     # ---------- 自动保存定时器 ----------
     def _reset_auto_save_timer(self):
-        """重置自动保存计时器（5分钟）"""
         self.auto_save_timer.start(5 * 60 * 1000)
 
     def _auto_save(self):
-        """静默自动保存，无确认对话框"""
         if not self.pending_records and not self.pending_deletes and not self.pending_edits:
             return
         self._perform_save(silent=True)
@@ -627,11 +654,6 @@ class MainWindow(QMainWindow):
         self._reset_auto_save_timer()
 
     def _perform_save(self, silent=False):
-        """
-        执行实际的保存操作。
-        silent=True 时不弹出成功/失败提示，仅更新状态栏。
-        """
-        # 执行删除
         errors = []
         for rid in self.pending_deletes:
             try:
@@ -639,7 +661,6 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 errors.append(f'删除失败: {e}')
 
-        # 执行编辑
         for rid, new_rec in self.pending_edits.items():
             try:
                 update_record(rid, new_rec[1], '', '', new_rec[2], new_rec[3],
@@ -649,7 +670,6 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 errors.append(f'编辑失败 (id={rid}): {e}')
 
-        # 执行新增，记录索引到新ID的映射
         new_id_map = {}
         final_pr_data = {}
         for i, pr in enumerate(self.pending_records):
@@ -660,7 +680,6 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 errors.append(f'新增失败: {e}')
 
-        # 构建新的撤销栈（将缓存操作转换为数据库操作记录）
         new_undo = []
         for item in self.undo_stack:
             if item['type'] == 'add':
