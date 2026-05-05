@@ -1,5 +1,5 @@
 """
-表格数据模型（含团牌、掉落，安全算式支持，列自定义）
+表格数据模型（含团牌、掉落，安全算式支持，修复 UnboundLocalError，支持文字自动过滤）
 """
 
 from PyQt6.QtCore import QAbstractTableModel, Qt
@@ -17,20 +17,27 @@ def _safe_eval(expr_str):
     s = expr_str.strip()
     if not s:
         return 0, ''
+
+    # 1. 统一中英文运算符
     trans = str.maketrans('＋－×＊÷／', '+-**//')
     s = s.translate(trans).replace(' ', '')
-    if re.search(r'[^0-9+\-*/().]', s):
-        try:
-            return int(float(s)), s
-        except ValueError:
-            return 0, s
+
+    # 2. 自动过滤掉所有非数字、非运算符、非小数点、非括号的字符（允许文字备注）
+    s = re.sub(r'[^0-9+\-*/().]', '', s)
+    if not s:
+        return 0, ''
+
+    # 3. 安全检查括号匹配
     if s.count('(') != s.count(')'):
         return 0, s
+
+    # 4. 安全求值
     allowed_ops = {
         ast.Add: op.add, ast.Sub: op.sub,
         ast.Mult: op.mul, ast.Div: op.truediv,
         ast.USub: op.neg,
     }
+
     def eval_node(node):
         if isinstance(node, ast.Constant):
             return node.value
@@ -42,6 +49,7 @@ def _safe_eval(expr_str):
             return allowed_ops[type(node.op)](eval_node(node.left), eval_node(node.right))
         else:
             raise ValueError("不支持的表达式")
+
     try:
         tree = ast.parse(s, mode='eval')
         result = eval_node(tree.body)
@@ -54,7 +62,19 @@ def _safe_eval(expr_str):
 
 
 def _parse_expr(value_str):
-    return _safe_eval(str(value_str).strip() if value_str else '')
+    """解析算式，支持砖格式（如 1砖9408+5000）"""
+    s = str(value_str).strip() if value_str else ''
+    if not s:
+        return 0, ''
+
+    # 预处理砖格式：将 "数字砖数字" 替换为 "(数字*10000+数字)"
+    def _replace_brick(m):
+        bricks = m.group(1) if m.group(1) else '0'
+        remainder = m.group(2) if m.group(2) else '0'
+        return f'({bricks}*10000+{remainder})'
+    s = re.sub(r'(\d+)砖(\d*)', _replace_brick, s)
+
+    return _safe_eval(s)
 
 
 class NoBorderDelegate(QStyledItemDelegate):
@@ -112,14 +132,16 @@ class SalaryTableModel(QAbstractTableModel):
         self.records = []
         self.statistics = None
         self.show_stats = True
-        self.editable_columns = []          # 可编辑的列名列表
-        self.visible_columns = list(self.HEADERS)   # 当前可见的列名（顺序即显示顺序）
+        self.editable_columns = []
+        self.visible_columns = list(self.HEADERS)
+        self.column_order = list(self.HEADERS)
 
     def set_editable_columns(self, columns):
         self.editable_columns = columns
 
     def set_visible_columns(self, visible_names):
         self.visible_columns = visible_names
+        self.column_order = visible_names
         self.beginResetModel()
         self.endResetModel()
 
