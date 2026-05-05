@@ -1,5 +1,5 @@
 """
-表格数据模型（含团牌、掉落，安全算式支持，修复 UnboundLocalError，支持文字自动过滤）
+表格数据模型（含团牌、掉落，安全算式支持，支持文字备注）
 """
 
 from PyQt6.QtCore import QAbstractTableModel, Qt
@@ -11,27 +11,34 @@ import ast
 import operator as op
 
 
+def _has_operator(s):
+    """判断字符串中是否包含中英文运算符"""
+    return bool(re.search(r'[＋－×＊÷／+\-*/]', s))
+
+
+def _clean_expr(expr_str):
+    """移除所有非数字、非运算符、非小数点的字符，保留表达式骨架"""
+    s = str(expr_str) if expr_str else ''
+    # 统一中英文运算符
+    s = s.replace('＋', '+').replace('－', '-').replace('×', '*').replace('＊', '*')
+    s = s.replace('÷', '/').replace('／', '/')
+    # 只允许数字、小数点、运算符、括号
+    s = re.sub(r'[^0-9+\-*/().]', '', s)
+    return s
+
+
 def _safe_eval(expr_str):
+    """安全计算经过清洗的算式"""
     if not expr_str or not isinstance(expr_str, str):
         return 0, ''
     s = expr_str.strip()
     if not s:
         return 0, ''
 
-    # 1. 统一中英文运算符
-    trans = str.maketrans('＋－×＊÷／', '+-**//')
-    s = s.translate(trans).replace(' ', '')
-
-    # 2. 自动过滤掉所有非数字、非运算符、非小数点、非括号的字符（允许文字备注）
-    s = re.sub(r'[^0-9+\-*/().]', '', s)
-    if not s:
-        return 0, ''
-
-    # 3. 安全检查括号匹配
+    # 检查括号匹配
     if s.count('(') != s.count(')'):
         return 0, s
 
-    # 4. 安全求值
     allowed_ops = {
         ast.Add: op.add, ast.Sub: op.sub,
         ast.Mult: op.mul, ast.Div: op.truediv,
@@ -62,19 +69,23 @@ def _safe_eval(expr_str):
 
 
 def _parse_expr(value_str):
-    """解析算式，支持砖格式（如 1砖9408+5000）"""
+    """解析输入，返回 (计算结果, 清洗后的表达式)"""
     s = str(value_str).strip() if value_str else ''
     if not s:
         return 0, ''
-
-    # 预处理砖格式：将 "数字砖数字" 替换为 "(数字*10000+数字)"
+    # 先处理砖格式
     def _replace_brick(m):
         bricks = m.group(1) if m.group(1) else '0'
         remainder = m.group(2) if m.group(2) else '0'
         return f'({bricks}*10000+{remainder})'
-    s = re.sub(r'(\d+)砖(\d*)', _replace_brick, s)
+    s_brick = re.sub(r'(\d+)砖(\d*)', _replace_brick, s)
 
-    return _safe_eval(s)
+    # 清洗文字
+    s_clean = _clean_expr(s_brick)
+    if not s_clean:
+        return 0, s  # 返回0，但保留原始表达式用于显示判断
+
+    return _safe_eval(s_clean)
 
 
 class NoBorderDelegate(QStyledItemDelegate):
@@ -209,16 +220,27 @@ class SalaryTableModel(QAbstractTableModel):
         record = list(self.records[row])
         value_str = str(value).strip() if value else ''
         field_idx = self.FIELD_MAP[col_name]
+
         if col_name in ('角色名', '门派', '团牌', '掉落'):
             record[field_idx] = value_str
         elif col_name in ('普通工资', '普通消费', '英雄工资', '英雄消费'):
-            result, expr = _parse_expr(value_str)
-            record[field_idx] = result
             expr_map = {'普通工资': 11, '普通消费': 12, '英雄工资': 13, '英雄消费': 14}
             expr_idx = expr_map[col_name]
+            # 保证记录有足够的长度
             while len(record) <= expr_idx:
                 record.append('')
-            record[expr_idx] = expr
+
+            # 判断是否包含运算符
+            if _has_operator(value_str):
+                # 包含运算符 → 进行清洗和计算
+                result, expr = _parse_expr(value_str)
+                record[field_idx] = result
+                record[expr_idx] = value_str   # 保存用户原始输入
+            else:
+                # 不含运算符 → 不计算，显示原样文字
+                record[field_idx] = 0          # 数值设为0，不计入总工资
+                record[expr_idx] = value_str   # 保存原始文本，用于显示和编辑
+        # 重新计算总工资
         record[8] = record[4] + record[6] - record[5] - record[7]
         self.records[row] = tuple(record)
         self.dataChanged.emit(index, index, [Qt.ItemDataRole.DisplayRole])
@@ -235,6 +257,14 @@ class SalaryTableModel(QAbstractTableModel):
         if col_name == '总工资':
             return number_to_brick(record[8])
         elif col_name in ('普通工资', '普通消费', '英雄工资', '英雄消费'):
+            expr_map = {'普通工资': 11, '普通消费': 12, '英雄工资': 13, '英雄消费': 14}
+            expr_idx = expr_map[col_name]
+            # 获取存储的原始输入
+            raw_expr = record[expr_idx] if len(record) > expr_idx else ''
+            if raw_expr and not _has_operator(raw_expr):
+                # 不含运算符 → 直接显示原始文本
+                return raw_expr
+            # 含运算符或空 → 显示计算结果（砖格式）
             return number_to_brick(record[idx])
         else:
             return str(record[idx]) if record[idx] is not None else ''
@@ -245,6 +275,7 @@ class SalaryTableModel(QAbstractTableModel):
             expr_idx = expr_map[col_name]
             if len(record) > expr_idx and record[expr_idx]:
                 return record[expr_idx]
+            # 如果没有存储的表达式，返回数字本身
             return str(record[self.FIELD_MAP[col_name]])
         else:
             return str(record[self.FIELD_MAP[col_name]])
