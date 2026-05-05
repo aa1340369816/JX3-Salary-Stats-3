@@ -1,5 +1,5 @@
 """
-数据库模块 - SQLite存储（含团牌、掉落字段）
+数据库模块 - SQLite存储（含团牌、掉落、工资表达式字段）
 """
 
 import sqlite3
@@ -68,10 +68,15 @@ def init_database():
                 total_salary INTEGER DEFAULT 0,
                 team_mark TEXT DEFAULT '',
                 drop_info TEXT DEFAULT '',
+                normal_salary_expr TEXT DEFAULT '',
+                normal_consume_expr TEXT DEFAULT '',
+                hero_salary_expr TEXT DEFAULT '',
+                hero_consume_expr TEXT DEFAULT '',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
 
+        # 增量列兼容旧表
         new_columns = [
             ('start_month', 'INTEGER'),
             ('start_day', 'INTEGER'),
@@ -79,7 +84,11 @@ def init_database():
             ('end_day', 'INTEGER'),
             ('sort_key', 'TEXT'),
             ('team_mark', "TEXT DEFAULT ''"),
-            ('drop_info', "TEXT DEFAULT ''")
+            ('drop_info', "TEXT DEFAULT ''"),
+            ('normal_salary_expr', "TEXT DEFAULT ''"),
+            ('normal_consume_expr', "TEXT DEFAULT ''"),
+            ('hero_salary_expr', "TEXT DEFAULT ''"),
+            ('hero_consume_expr', "TEXT DEFAULT ''")
         ]
         for col_name, col_type in new_columns:
             try:
@@ -91,7 +100,9 @@ def init_database():
 
 def add_record(date_range, start_date, end_date, character_name, faction,
                normal_salary, normal_consume, hero_salary, hero_consume,
-               team_mark='', drop_info=''):
+               team_mark='', drop_info='',
+               normal_salary_expr='', normal_consume_expr='',
+               hero_salary_expr='', hero_consume_expr=''):
     total = normal_salary + hero_salary - normal_consume - hero_consume
     start_month, start_day, end_month, end_day = _parse_date(date_range)
     sort_key = make_sort_key(start_month, start_day)
@@ -103,19 +114,23 @@ def add_record(date_range, start_date, end_date, character_name, faction,
             (date_range, start_month, start_day, end_month, end_day, sort_key,
              character_name, faction,
              normal_salary, normal_consume, hero_salary, hero_consume, total_salary,
-             team_mark, drop_info)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             team_mark, drop_info,
+             normal_salary_expr, normal_consume_expr, hero_salary_expr, hero_consume_expr)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (date_range, start_month, start_day, end_month, end_day, sort_key,
               character_name, faction,
               normal_salary, normal_consume, hero_salary, hero_consume, total,
-              team_mark, drop_info))
+              team_mark, drop_info,
+              normal_salary_expr, normal_consume_expr, hero_salary_expr, hero_consume_expr))
         conn.commit()
         return cursor.lastrowid
 
 
 def update_record(record_id, date_range, start_date, end_date, character_name, faction,
                   normal_salary, normal_consume, hero_salary, hero_consume,
-                  team_mark='', drop_info=''):
+                  team_mark='', drop_info='',
+                  normal_salary_expr='', normal_consume_expr='',
+                  hero_salary_expr='', hero_consume_expr=''):
     total = normal_salary + hero_salary - normal_consume - hero_consume
     start_month, start_day, end_month, end_day = _parse_date(date_range)
     sort_key = make_sort_key(start_month, start_day)
@@ -127,12 +142,15 @@ def update_record(record_id, date_range, start_date, end_date, character_name, f
             SET date_range=?, start_month=?, start_day=?, end_month=?, end_day=?, sort_key=?,
                 character_name=?, faction=?,
                 normal_salary=?, normal_consume=?, hero_salary=?, hero_consume=?, total_salary=?,
-                team_mark=?, drop_info=?
+                team_mark=?, drop_info=?,
+                normal_salary_expr=?, normal_consume_expr=?, hero_salary_expr=?, hero_consume_expr=?
             WHERE id=?
         ''', (date_range, start_month, start_day, end_month, end_day, sort_key,
               character_name, faction,
               normal_salary, normal_consume, hero_salary, hero_consume, total,
-              team_mark, drop_info, record_id))
+              team_mark, drop_info,
+              normal_salary_expr, normal_consume_expr, hero_salary_expr, hero_consume_expr,
+              record_id))
         conn.commit()
 
 
@@ -150,7 +168,8 @@ def get_all_records(date_filter=None):
             cursor.execute('''
                 SELECT id, date_range, character_name, faction,
                        normal_salary, normal_consume, hero_salary, hero_consume, total_salary,
-                       team_mark, drop_info
+                       team_mark, drop_info,
+                       normal_salary_expr, normal_consume_expr, hero_salary_expr, hero_consume_expr
                 FROM salary_records
                 WHERE date_range = ?
                 ORDER BY sort_key ASC, id ASC
@@ -159,7 +178,8 @@ def get_all_records(date_filter=None):
             cursor.execute('''
                 SELECT id, date_range, character_name, faction,
                        normal_salary, normal_consume, hero_salary, hero_consume, total_salary,
-                       team_mark, drop_info
+                       team_mark, drop_info,
+                       normal_salary_expr, normal_consume_expr, hero_salary_expr, hero_consume_expr
                 FROM salary_records
                 ORDER BY sort_key ASC, id ASC
             ''')
