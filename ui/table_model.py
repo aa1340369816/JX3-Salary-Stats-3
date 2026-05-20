@@ -1,5 +1,5 @@
 """
-表格数据模型（含团牌、掉落，安全算式支持，支持文字备注，运算式行变灰-修复缓存行表达式同步）
+表格数据模型（含团牌、掉落，安全算式支持，支持文字备注，运算式行变灰-最终版）
 """
 
 from PyQt6.QtCore import QAbstractTableModel, Qt
@@ -148,12 +148,9 @@ class SalaryTableModel(QAbstractTableModel):
 
     def set_gray_expression_rows(self, enabled):
         self.gray_expression_rows = enabled
-        if self.records:
-            self.dataChanged.emit(
-                self.index(0, 0),
-                self.index(self.rowCount() - 1, self.columnCount() - 1),
-                [Qt.ItemDataRole.BackgroundRole]
-            )
+        # 强制重置模型以完全刷新背景
+        self.beginResetModel()
+        self.endResetModel()
 
     def _is_row_expression(self, row):
         if row >= len(self.records):
@@ -202,8 +199,9 @@ class SalaryTableModel(QAbstractTableModel):
             return None
 
         row, col = index.row(), index.column()
+        # 统计行：始终返回白色背景
         if self.show_stats and self.statistics and self.statistics.get('count', 0) > 0 and row >= len(self.records):
-            if role == Qt.ItemDataRole.BackgroundRole and self.gray_expression_rows:
+            if role == Qt.ItemDataRole.BackgroundRole:
                 return QColor(255, 255, 255)
             return self._get_stats_data(row - len(self.records), col, role)
 
@@ -213,11 +211,11 @@ class SalaryTableModel(QAbstractTableModel):
         record = self.records[row]
         col_name = self.visible_columns[col]
 
-        if role == Qt.ItemDataRole.BackgroundRole and self.gray_expression_rows:
-            if self._is_row_expression(row):
-                return QColor(230, 230, 230)
+        if role == Qt.ItemDataRole.BackgroundRole:
+            if self.gray_expression_rows and self._is_row_expression(row):
+                return QColor(230, 230, 230)  # 灰色
             else:
-                return QColor(255, 255, 255)
+                return QColor(255, 255, 255)  # 白色（关键：非表达式行也显式返回白色）
 
         if role == Qt.ItemDataRole.DisplayRole:
             return self._format_cell(record, col_name)
@@ -256,15 +254,12 @@ class SalaryTableModel(QAbstractTableModel):
         record[8] = record[4] + record[6] - record[5] - record[7]
         self.records[row] = tuple(record)
 
-        # 编辑工资列时，刷新整行的显示和背景
-        if col_name in ('普通工资', '普通消费', '英雄工资', '英雄消费'):
-            self.dataChanged.emit(
-                self.index(row, 0),
-                self.index(row, self.columnCount() - 1),
-                [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.BackgroundRole]
-            )
-        else:
-            self.dataChanged.emit(index, index, [Qt.ItemDataRole.DisplayRole])
+        # 刷新整行显示和背景
+        self.dataChanged.emit(
+            self.index(row, 0),
+            self.index(row, self.columnCount() - 1),
+            [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.BackgroundRole]
+        )
         return True
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
