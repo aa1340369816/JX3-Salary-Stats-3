@@ -1,9 +1,9 @@
 """
-表格数据模型（含团牌、掉落，安全算式支持，支持文字备注-改进版）
+表格数据模型（含团牌、掉落，安全算式支持，支持文字备注，运算式行变灰）
 """
 
 from PyQt6.QtCore import QAbstractTableModel, Qt
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QColor
 from PyQt6.QtWidgets import QStyledItemDelegate, QLineEdit
 from core.utils import number_to_brick
 import re
@@ -150,6 +150,8 @@ class SalaryTableModel(QAbstractTableModel):
         self.editable_columns = []
         self.visible_columns = list(self.HEADERS)
         self.column_order = list(self.HEADERS)
+        # 新增：是否启用运算式行变灰
+        self.gray_expression_rows = True
 
     def set_editable_columns(self, columns):
         self.editable_columns = columns
@@ -159,6 +161,27 @@ class SalaryTableModel(QAbstractTableModel):
         self.column_order = visible_names
         self.beginResetModel()
         self.endResetModel()
+
+    def set_gray_expression_rows(self, enabled):
+        """开启或关闭运算式行灰色背景"""
+        self.gray_expression_rows = enabled
+        # 通知所有行外观变化
+        if self.records:
+            top_left = self.index(0, 0)
+            bottom_right = self.index(self.rowCount() - 1, self.columnCount() - 1)
+            self.dataChanged.emit(top_left, bottom_right, [Qt.ItemDataRole.BackgroundRole])
+
+    def _is_row_expression(self, row):
+        """判断某行是否含有运算式（工资列有运算符或砖）"""
+        if row >= len(self.records):
+            return False
+        record = self.records[row]
+        # 检查表达式字段 (索引 11-14)
+        for expr_idx in (11, 12, 13, 14):
+            expr = record[expr_idx] if len(record) > expr_idx else ''
+            if expr and _has_operator_or_brick(expr):
+                return True
+        return False
 
     def load_data(self, records, statistics):
         self.beginResetModel()
@@ -193,15 +216,30 @@ class SalaryTableModel(QAbstractTableModel):
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
         if not index.isValid():
             return None
-        if role == 13:
+        if role == 13:  # 隐藏焦点框
             return None
+
         row, col = index.row(), index.column()
+        # 统计行不参与灰色标记
         if self.show_stats and self.statistics and self.statistics.get('count', 0) > 0 and row >= len(self.records):
+            if role == Qt.ItemDataRole.BackgroundRole and self.gray_expression_rows:
+                # 统计行保持默认白色
+                return QColor(255, 255, 255)
             return self._get_stats_data(row - len(self.records), col, role)
+
         if row >= len(self.records):
             return None
+
         record = self.records[row]
         col_name = self.visible_columns[col]
+
+        # 处理背景色：运算式行变灰
+        if role == Qt.ItemDataRole.BackgroundRole and self.gray_expression_rows:
+            if self._is_row_expression(row):
+                return QColor(230, 230, 230)  # 浅灰色
+            else:
+                return QColor(255, 255, 255)  # 白色
+
         if role == Qt.ItemDataRole.DisplayRole:
             return self._format_cell(record, col_name)
         elif role == Qt.ItemDataRole.EditRole:
@@ -237,13 +275,16 @@ class SalaryTableModel(QAbstractTableModel):
             record[expr_idx] = value_str
 
             # 尝试提取数值（无论是否包含运算符）
-            result, _ = _parse_expr(value_str)  # 清洗并计算
-            record[field_idx] = result          # 数值存入对应工资字段
+            result, _ = _parse_expr(value_str)
+            record[field_idx] = result
 
         # 重新计算总工资
         record[8] = record[4] + record[6] - record[5] - record[7]
         self.records[row] = tuple(record)
+        # 通知视图更新该行（包括背景色可能改变）
         self.dataChanged.emit(index, index, [Qt.ItemDataRole.DisplayRole])
+        # 因为总工资列也可能改变，但上面只刷新了编辑单元格，总工资列也需要刷新。
+        # 可以通过更新整行来解决，但简单起见，让主窗口在 _on_cell_changed 里处理。
         return True
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
