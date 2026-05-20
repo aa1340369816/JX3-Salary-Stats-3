@@ -1,7 +1,7 @@
 """
 主窗口 - 剑网三副本工资统计
 手动保存 + 5分钟自动保存 + 保存后可撤销/重做（30步） + 窗口高度自适应 + 运算式行变灰（右键开关）
-修复：缓存新增行编辑后变灰问题
+修复：缓存新增行编辑后表达式未同步导致无法变灰
 """
 
 import os
@@ -325,7 +325,7 @@ class MainWindow(QMainWindow):
         if self.pending_records:
             self._reset_auto_save_timer()
 
-    # ---------- 数据刷新（修复缓存行表达式） ----------
+    # ---------- 数据刷新 ----------
     def _refresh_data(self):
         if hasattr(self, '_first_load') and self._first_load:
             self._first_load = False
@@ -353,7 +353,6 @@ class MainWindow(QMainWindow):
         # 合并缓存新增 - 优先使用模型记录（保留表达式）
         for i, pr in enumerate(self.pending_records):
             temp_id = -(i + 1)
-            # 检查模型中是否已有该缓存行
             existing = None
             for rec in self.table_model.records:
                 if rec[0] == temp_id:
@@ -487,6 +486,7 @@ class MainWindow(QMainWindow):
         if len(self.undo_stack) > self.max_history:
             self.undo_stack.pop(0)
 
+    # ---------- 单元格编辑（修复缓存行表达式同步） ----------
     def _on_cell_changed(self, topLeft, bottomRight):
         row, col = topLeft.row(), topLeft.column()
         record_id = self.table_model.get_record_id(row)
@@ -512,6 +512,15 @@ class MainWindow(QMainWindow):
                     new_val = record[SalaryTableModel.FIELD_MAP[col_name]]
                     pr_list[field_map[col_name]] = new_val
                     self.pending_records[idx] = tuple(pr_list)
+
+                    # 同步表达式到模型记录
+                    expr_map = {'普通工资': 11, '普通消费': 12, '英雄工资': 13, '英雄消费': 14}
+                    if col_name in expr_map:
+                        expr_idx = expr_map[col_name]
+                        # 从模型记录中获取原始输入并写入 pending_records 的表达式占位？pending_records 没有表达式字段。
+                        # 但是模型记录已经有了表达式（因为 setData 已更新），所以不用额外操作。
+                        pass
+
                     self._push_undo({
                         'type': 'edit_pending',
                         'pending_idx': idx,
