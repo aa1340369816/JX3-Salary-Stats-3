@@ -457,6 +457,7 @@ class MainWindow(QMainWindow):
 
         # 强制刷新灰度状态
         self.table_model.set_gray_expression_rows(self.gray_expression_rows)
+
         self._adjust_window_height(len(data_records))
 
     def _adjust_window_height(self, data_count):
@@ -486,7 +487,6 @@ class MainWindow(QMainWindow):
         if len(self.undo_stack) > self.max_history:
             self.undo_stack.pop(0)
 
-    # ---------- 单元格编辑 ----------
     def _on_cell_changed(self, topLeft, bottomRight):
         row, col = topLeft.row(), topLeft.column()
         record_id = self.table_model.get_record_id(row)
