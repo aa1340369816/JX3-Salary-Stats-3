@@ -1,5 +1,5 @@
 """
-表格数据模型（含团牌、掉落，安全算式支持，支持文字备注，运算式行变灰-修复编辑后不灰）
+表格数据模型（含团牌、掉落，安全算式支持，支持文字备注，运算式行变灰-最终修复）
 """
 
 from PyQt6.QtCore import QAbstractTableModel, Qt
@@ -12,7 +12,6 @@ import operator as op
 
 
 def _has_operator_or_brick(s):
-    """判断字符串是否含有运算符或砖字，这些是需要进行数学计算的标记"""
     if re.search(r'[＋－×＊÷／+\-*/]', s):
         return True
     if '砖' in s:
@@ -21,7 +20,6 @@ def _has_operator_or_brick(s):
 
 
 def _clean_expr(expr_str):
-    """移除所有非数字、非运算符、非小数点的字符，保留表达式骨架"""
     s = str(expr_str) if expr_str else ''
     s = s.replace('＋', '+').replace('－', '-').replace('×', '*').replace('＊', '*')
     s = s.replace('÷', '/').replace('／', '/')
@@ -30,7 +28,6 @@ def _clean_expr(expr_str):
 
 
 def _safe_eval(expr_str):
-    """安全计算经过去文字处理的算式"""
     if not expr_str or not isinstance(expr_str, str):
         return 0, ''
     s = expr_str.strip()
@@ -66,7 +63,6 @@ def _safe_eval(expr_str):
 
 
 def _parse_expr(value_str):
-    """解析输入，返回 (计算结果, 清洗后的表达式)"""
     s = str(value_str).strip() if value_str else ''
     if not s:
         return 0, ''
@@ -151,15 +147,15 @@ class SalaryTableModel(QAbstractTableModel):
         self.endResetModel()
 
     def set_gray_expression_rows(self, enabled):
-        """开启或关闭运算式行灰色背景"""
         self.gray_expression_rows = enabled
         if self.records:
-            top_left = self.index(0, 0)
-            bottom_right = self.index(self.rowCount() - 1, self.columnCount() - 1)
-            self.dataChanged.emit(top_left, bottom_right, [Qt.ItemDataRole.BackgroundRole])
+            self.dataChanged.emit(
+                self.index(0, 0),
+                self.index(self.rowCount() - 1, self.columnCount() - 1),
+                [Qt.ItemDataRole.BackgroundRole]
+            )
 
     def _is_row_expression(self, row):
-        """判断某行是否含有运算式（工资列有运算符或砖）"""
         if row >= len(self.records):
             return False
         record = self.records[row]
@@ -260,10 +256,13 @@ class SalaryTableModel(QAbstractTableModel):
         record[8] = record[4] + record[6] - record[5] - record[7]
         self.records[row] = tuple(record)
 
-        # 修复：编辑工资列时，刷新整行背景和显示
+        # 编辑工资列时，刷新整行的显示和背景
         if col_name in ('普通工资', '普通消费', '英雄工资', '英雄消费'):
-            self.dataChanged.emit(self.index(row, 0), self.index(row, self.columnCount() - 1),
-                                  [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.BackgroundRole])
+            self.dataChanged.emit(
+                self.index(row, 0),
+                self.index(row, self.columnCount() - 1),
+                [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.BackgroundRole]
+            )
         else:
             self.dataChanged.emit(index, index, [Qt.ItemDataRole.DisplayRole])
         return True
