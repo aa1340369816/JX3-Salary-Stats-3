@@ -1,6 +1,7 @@
 """
 主窗口 - 剑网三副本工资统计
 手动保存 + 5分钟自动保存 + 保存后可撤销/重做（30步） + 窗口高度自适应 + 运算式行变灰（右键开关）
+修复：缓存新增行编辑后变灰问题
 """
 
 import os
@@ -57,9 +58,9 @@ class MainWindow(QMainWindow):
         self.setMinimumWidth(1200)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
 
-        self.pending_records = []      # 待新增
-        self.pending_deletes = []      # 待删除的真实ID
-        self.pending_edits = {}        # {真实ID: 完整新记录}
+        self.pending_records = []
+        self.pending_deletes = []
+        self.pending_edits = {}
 
         self.undo_stack = []
         self.redo_stack = []
@@ -69,7 +70,6 @@ class MainWindow(QMainWindow):
         self.auto_save_timer.setSingleShot(True)
         self.auto_save_timer.timeout.connect(self._auto_save)
 
-        # 加载设置（列显示、列顺序、运算式行变灰开关）
         self.settings = self._load_settings()
         self.visible_columns = self.settings.get('visible_columns', list(SalaryTableModel.HEADERS))
         self.column_order = self.settings.get('column_order', list(SalaryTableModel.HEADERS))
@@ -80,12 +80,10 @@ class MainWindow(QMainWindow):
         self._set_default_week()
         self._apply_column_settings()
 
-        # 应用灰度设置
         self.table_model.set_gray_expression_rows(self.gray_expression_rows)
 
         self._refresh_data()
 
-        # 快捷键
         self.save_shortcut = QShortcut(QKeySequence('Ctrl+S'), self)
         self.save_shortcut.activated.connect(self._on_save)
         self.undo_shortcut = QShortcut(QKeySequence('Ctrl+Z'), self)
@@ -101,7 +99,6 @@ class MainWindow(QMainWindow):
         main_layout.setSpacing(0)
         main_layout.setContentsMargins(0, 0, 0, 0)
 
-        # 标题栏
         title_bar = QWidget()
         title_bar.setObjectName('titleBar')
         title_bar.setFixedHeight(40)
@@ -124,13 +121,11 @@ class MainWindow(QMainWindow):
         title_bar_layout.addWidget(close_btn)
         main_layout.addWidget(title_bar)
 
-        # 内容区域
         self.content_widget = QWidget()
         content_layout = QVBoxLayout(self.content_widget)
         content_layout.setSpacing(8)
         content_layout.setContentsMargins(10, 10, 10, 10)
 
-        # 工具栏
         toolbar_layout = QHBoxLayout()
         title_label = QLabel('剑网三 副本工资统计')
         title_font = QFont()
@@ -170,14 +165,12 @@ class MainWindow(QMainWindow):
         self.save_btn.clicked.connect(self._on_save)
         toolbar_layout.addWidget(self.save_btn)
 
-        # 列设置按钮
         self.column_menu_btn = QPushButton('列设置')
         self.column_menu_btn.clicked.connect(self._show_column_menu)
         toolbar_layout.addWidget(self.column_menu_btn)
 
         content_layout.addLayout(toolbar_layout)
 
-        # 表格
         self.table_view = QTableView()
         self.table_view.setAlternatingRowColors(False)
         self.table_view.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
@@ -186,11 +179,9 @@ class MainWindow(QMainWindow):
         self.table_view.horizontalHeader().setStretchLastSection(True)
         self.table_view.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
-        # 启用拖拽列
         self.table_view.horizontalHeader().setSectionsMovable(True)
         self.table_view.horizontalHeader().sectionMoved.connect(self._on_section_moved)
 
-        # 右键菜单
         self.table_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table_view.customContextMenuRequested.connect(self._on_table_context_menu)
 
@@ -201,7 +192,6 @@ class MainWindow(QMainWindow):
         content_layout.addWidget(self.table_view)
         main_layout.addWidget(self.content_widget)
 
-        # 状态栏
         self.status_label = QLabel('就绪')
         self.statusBar().addWidget(self.status_label)
         self._drag_pos = None
@@ -247,7 +237,6 @@ class MainWindow(QMainWindow):
         self._save_settings()
 
     def _save_settings(self):
-        """保存列设置和灰度设置"""
         try:
             with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
                 json.dump({
@@ -288,7 +277,6 @@ class MainWindow(QMainWindow):
                 return
         event.accept()
 
-    # ---------- 日期计算 ----------
     def _set_default_week(self):
         utc_now = datetime.datetime.utcnow()
         beijing_now = utc_now + datetime.timedelta(hours=8)
@@ -337,7 +325,7 @@ class MainWindow(QMainWindow):
         if self.pending_records:
             self._reset_auto_save_timer()
 
-    # ---------- 数据刷新 ----------
+    # ---------- 数据刷新（修复缓存行表达式） ----------
     def _refresh_data(self):
         if hasattr(self, '_first_load') and self._first_load:
             self._first_load = False
@@ -362,17 +350,26 @@ class MainWindow(QMainWindow):
                 else:
                     base_records.append(r)
 
+        # 合并缓存新增 - 优先使用模型记录（保留表达式）
         for i, pr in enumerate(self.pending_records):
             temp_id = -(i + 1)
-            total = pr[5] + pr[7] - pr[6] - pr[8]
-            temp_record = (temp_id, pr[0], pr[3], pr[4], pr[5], pr[6], pr[7], pr[8], total, pr[9], pr[10])
+            # 检查模型中是否已有该缓存行
+            existing = None
+            for rec in self.table_model.records:
+                if rec[0] == temp_id:
+                    existing = rec
+                    break
+            if existing and len(existing) >= 15:
+                temp_record = existing
+            else:
+                total = pr[5] + pr[7] - pr[6] - pr[8]
+                temp_record = (temp_id, pr[0], pr[3], pr[4], pr[5], pr[6], pr[7], pr[8], total, pr[9], pr[10])
             if not date_filter or pr[0] == date_filter:
                 base_records.append(temp_record)
 
         if date_filter:
             base_records = [r for r in base_records if r[1] == date_filter]
 
-        # 全部视图聚合
         if date_filter is None:
             aggregated = {}
             for r in base_records:
@@ -400,7 +397,6 @@ class MainWindow(QMainWindow):
             self.add_btn.setEnabled(True)
             self.delete_btn.setEnabled(True)
 
-        # 门派筛选
         current_faction = self.faction_filter_combo.currentText()
         self.faction_filter_combo.blockSignals(True)
         self.faction_filter_combo.clear()
@@ -415,7 +411,6 @@ class MainWindow(QMainWindow):
             self.faction_filter_combo.setCurrentIndex(0)
         self.faction_filter_combo.blockSignals(False)
 
-        # 日期筛选
         self.date_filter_combo.blockSignals(True)
         self.date_filter_combo.clear()
         self.date_filter_combo.addItem('全部')
@@ -434,7 +429,6 @@ class MainWindow(QMainWindow):
         stats = _calc_stats(data_records)
         self.table_model.load_data(base_records, stats)
 
-        # 强制 Stretch 列宽
         header = self.table_view.horizontalHeader()
         for i in range(header.count()):
             header.setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch)
@@ -461,7 +455,6 @@ class MainWindow(QMainWindow):
             self.status_label.setText(f'共 {len(data_records)} 条记录')
             self.save_btn.setEnabled(False)
 
-        # 自动调整窗口高度
         self._adjust_window_height(len(data_records))
 
     def _adjust_window_height(self, data_count):
@@ -577,7 +570,6 @@ class MainWindow(QMainWindow):
             self.status_label.setText(f'共 {count} 条记录')
             self.save_btn.setEnabled(False)
 
-    # ---------- 新增 ----------
     def _on_add(self):
         dialog = RecordDialog(self)
         if dialog.exec() == RecordDialog.DialogCode.Accepted:
@@ -593,7 +585,6 @@ class MainWindow(QMainWindow):
             self._refresh_data()
             self._reset_auto_save_timer()
 
-    # ---------- 删除 ----------
     def _on_delete(self):
         index = self.table_view.currentIndex()
         if not index.isValid():
@@ -635,7 +626,6 @@ class MainWindow(QMainWindow):
         self._refresh_data()
         self._reset_auto_save_timer()
 
-    # ---------- 自动保存定时器 ----------
     def _reset_auto_save_timer(self):
         self.auto_save_timer.start(5 * 60 * 1000)
 
@@ -645,7 +635,6 @@ class MainWindow(QMainWindow):
         self._perform_save(silent=True)
         self.status_label.setText('已自动保存')
 
-    # ---------- 手动保存 ----------
     def _on_save(self):
         if not self.pending_records and not self.pending_deletes and not self.pending_edits:
             show_message(self, '提示', '没有需要保存的更改')
@@ -663,17 +652,14 @@ class MainWindow(QMainWindow):
         self._perform_save(silent=False)
         self._reset_auto_save_timer()
 
-    # ---------- 核心保存（含表达式） ----------
     def _perform_save(self, silent=False):
         errors = []
-        # 1. 删除
         for rid in self.pending_deletes:
             try:
                 delete_record(rid)
             except Exception as e:
                 errors.append(f'删除失败: {e}')
 
-        # 2. 编辑
         for rid, new_rec in self.pending_edits.items():
             ns_expr = new_rec[11] if len(new_rec) > 11 else ''
             nc_expr = new_rec[12] if len(new_rec) > 12 else ''
@@ -688,7 +674,6 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 errors.append(f'编辑失败 (id={rid}): {e}')
 
-        # 3. 新增
         pending_exprs = {}
         for rec in self.table_model.records:
             rid = rec[0]
@@ -714,7 +699,6 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 errors.append(f'新增失败: {e}')
 
-        # 4. 重建撤销栈（数据库操作记录）
         new_undo = []
         for item in self.undo_stack:
             if item['type'] == 'add':
@@ -779,7 +763,6 @@ class MainWindow(QMainWindow):
                 show_message(self, '保存成功', '所有更改已保存')
         self._refresh_data()
 
-    # ---------- 导入 ----------
     def _on_import(self):
         dialog = QFileDialog(self)
         dialog.setWindowTitle('选择Excel文件')
@@ -824,7 +807,6 @@ class MainWindow(QMainWindow):
         show_message(self, '导入成功', f'成功导入 {count} 条记录')
         self._refresh_data()
 
-    # ---------- 导出 ----------
     def _on_export(self):
         data_records = [r for r in self.table_model.records if r[2] not in ('平均', '合计')]
         current_date = self.date_filter_combo.currentText()
@@ -1015,7 +997,6 @@ class MainWindow(QMainWindow):
     # ---------- 右键菜单 ----------
     def _on_table_context_menu(self, pos: QPoint):
         menu = QMenu(self)
-        # 运算式行变灰开关
         gray_action = QAction('运算式行变灰', menu, checkable=True)
         gray_action.setChecked(self.gray_expression_rows)
         gray_action.toggled.connect(self._toggle_gray_rows)
@@ -1023,7 +1004,6 @@ class MainWindow(QMainWindow):
 
         menu.addSeparator()
 
-        # 行操作（仅当右击在某行上时）
         index = self.table_view.indexAt(pos)
         row = index.row() if index.isValid() else -1
         if row >= 0:
