@@ -80,7 +80,10 @@ class MainWindow(QMainWindow):
         self._set_default_week()
         self._apply_column_settings()
 
-        self.table_model.set_gray_expression_rows(self.gray_expression_rows)
+        # 灰度状态已在模型加载时由 load_data 间接处理，此处调用会重置模型，确保刷新
+        if self.table_model.gray_expression_rows != self.gray_expression_rows:
+            self.table_model.set_gray_expression_rows(self.gray_expression_rows)
+        self.table_view.viewport().update()
         self.table_view.viewport().update()  # 强制重绘视口
 
         self._refresh_data()
