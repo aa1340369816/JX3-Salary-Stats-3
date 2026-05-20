@@ -193,6 +193,8 @@ class MainWindow(QMainWindow):
         self.table_model.dataChanged.connect(self._on_cell_changed)
         self.table_view.setModel(self.table_model)
         self.table_view.setItemDelegate(NoBorderDelegate(self.table_view))
+        # ↓↓↓ 添加这行 ↓↓↓
+        self.table_view.setStyleSheet("QTableView::item { background-color: transparent; }")
         content_layout.addWidget(self.table_view)
         main_layout.addWidget(self.content_widget)
 
