@@ -1,5 +1,5 @@
 """
-表格数据模型（含团牌、掉落，安全算式支持，支持文字备注，运算式行变灰）
+表格数据模型（含团牌、掉落，安全算式支持，支持文字备注，运算式行变灰-修复编辑后不灰）
 """
 
 from PyQt6.QtCore import QAbstractTableModel, Qt
@@ -23,10 +23,8 @@ def _has_operator_or_brick(s):
 def _clean_expr(expr_str):
     """移除所有非数字、非运算符、非小数点的字符，保留表达式骨架"""
     s = str(expr_str) if expr_str else ''
-    # 统一中英文运算符
     s = s.replace('＋', '+').replace('－', '-').replace('×', '*').replace('＊', '*')
     s = s.replace('÷', '/').replace('／', '/')
-    # 只保留数字、小数点、运算符、括号
     s = re.sub(r'[^0-9+\-*/().]', '', s)
     return s
 
@@ -38,16 +36,13 @@ def _safe_eval(expr_str):
     s = expr_str.strip()
     if not s:
         return 0, ''
-
     if s.count('(') != s.count(')'):
         return 0, s
-
     allowed_ops = {
         ast.Add: op.add, ast.Sub: op.sub,
         ast.Mult: op.mul, ast.Div: op.truediv,
         ast.USub: op.neg,
     }
-
     def eval_node(node):
         if isinstance(node, ast.Constant):
             return node.value
@@ -59,7 +54,6 @@ def _safe_eval(expr_str):
             return allowed_ops[type(node.op)](eval_node(node.left), eval_node(node.right))
         else:
             raise ValueError("不支持的表达式")
-
     try:
         tree = ast.parse(s, mode='eval')
         result = eval_node(tree.body)
@@ -76,19 +70,14 @@ def _parse_expr(value_str):
     s = str(value_str).strip() if value_str else ''
     if not s:
         return 0, ''
-
-    # 砖格式预处理
     def _replace_brick(m):
         bricks = m.group(1) if m.group(1) else '0'
         remainder = m.group(2) if m.group(2) else '0'
         return f'({bricks}*10000+{remainder})'
     s_brick = re.sub(r'(\d+)砖(\d*)', _replace_brick, s)
-
-    # 清洗文字
     s_clean = _clean_expr(s_brick)
     if not s_clean:
         return 0, s
-
     return _safe_eval(s_clean)
 
 
@@ -150,7 +139,6 @@ class SalaryTableModel(QAbstractTableModel):
         self.editable_columns = []
         self.visible_columns = list(self.HEADERS)
         self.column_order = list(self.HEADERS)
-        # 新增：是否启用运算式行变灰
         self.gray_expression_rows = True
 
     def set_editable_columns(self, columns):
@@ -165,7 +153,6 @@ class SalaryTableModel(QAbstractTableModel):
     def set_gray_expression_rows(self, enabled):
         """开启或关闭运算式行灰色背景"""
         self.gray_expression_rows = enabled
-        # 通知所有行外观变化
         if self.records:
             top_left = self.index(0, 0)
             bottom_right = self.index(self.rowCount() - 1, self.columnCount() - 1)
@@ -176,7 +163,6 @@ class SalaryTableModel(QAbstractTableModel):
         if row >= len(self.records):
             return False
         record = self.records[row]
-        # 检查表达式字段 (索引 11-14)
         for expr_idx in (11, 12, 13, 14):
             expr = record[expr_idx] if len(record) > expr_idx else ''
             if expr and _has_operator_or_brick(expr):
@@ -216,14 +202,12 @@ class SalaryTableModel(QAbstractTableModel):
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
         if not index.isValid():
             return None
-        if role == 13:  # 隐藏焦点框
+        if role == 13:
             return None
 
         row, col = index.row(), index.column()
-        # 统计行不参与灰色标记
         if self.show_stats and self.statistics and self.statistics.get('count', 0) > 0 and row >= len(self.records):
             if role == Qt.ItemDataRole.BackgroundRole and self.gray_expression_rows:
-                # 统计行保持默认白色
                 return QColor(255, 255, 255)
             return self._get_stats_data(row - len(self.records), col, role)
 
@@ -233,12 +217,11 @@ class SalaryTableModel(QAbstractTableModel):
         record = self.records[row]
         col_name = self.visible_columns[col]
 
-        # 处理背景色：运算式行变灰
         if role == Qt.ItemDataRole.BackgroundRole and self.gray_expression_rows:
             if self._is_row_expression(row):
-                return QColor(230, 230, 230)  # 浅灰色
+                return QColor(230, 230, 230)
             else:
-                return QColor(255, 255, 255)  # 白色
+                return QColor(255, 255, 255)
 
         if role == Qt.ItemDataRole.DisplayRole:
             return self._format_cell(record, col_name)
@@ -268,23 +251,21 @@ class SalaryTableModel(QAbstractTableModel):
         elif col_name in ('普通工资', '普通消费', '英雄工资', '英雄消费'):
             expr_map = {'普通工资': 11, '普通消费': 12, '英雄工资': 13, '英雄消费': 14}
             expr_idx = expr_map[col_name]
-            # 保证记录长度足够
             while len(record) <= expr_idx:
                 record.append('')
-            # 始终存储原始输入
             record[expr_idx] = value_str
-
-            # 尝试提取数值（无论是否包含运算符）
             result, _ = _parse_expr(value_str)
             record[field_idx] = result
 
-        # 重新计算总工资
         record[8] = record[4] + record[6] - record[5] - record[7]
         self.records[row] = tuple(record)
-        # 通知视图更新该行（包括背景色可能改变）
-        self.dataChanged.emit(index, index, [Qt.ItemDataRole.DisplayRole])
-        # 因为总工资列也可能改变，但上面只刷新了编辑单元格，总工资列也需要刷新。
-        # 可以通过更新整行来解决，但简单起见，让主窗口在 _on_cell_changed 里处理。
+
+        # 修复：编辑工资列时，刷新整行背景和显示
+        if col_name in ('普通工资', '普通消费', '英雄工资', '英雄消费'):
+            self.dataChanged.emit(self.index(row, 0), self.index(row, self.columnCount() - 1),
+                                  [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.BackgroundRole])
+        else:
+            self.dataChanged.emit(index, index, [Qt.ItemDataRole.DisplayRole])
         return True
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
@@ -302,14 +283,11 @@ class SalaryTableModel(QAbstractTableModel):
             expr_idx = expr_map[col_name]
             raw = record[expr_idx] if len(record) > expr_idx else ''
             if raw:
-                # 如果原始输入包含运算符或砖字 → 显示数值（砖格式）
                 if _has_operator_or_brick(raw):
                     return number_to_brick(record[idx])
                 else:
-                    # 纯文本 → 直接显示原始字符串
                     return raw
             else:
-                # 无原始输入（如从数据库加载的旧数据） → 显示数值
                 return number_to_brick(record[idx])
         else:
             return str(record[idx]) if record[idx] is not None else ''
@@ -320,7 +298,6 @@ class SalaryTableModel(QAbstractTableModel):
             expr_idx = expr_map[col_name]
             if len(record) > expr_idx and record[expr_idx]:
                 return record[expr_idx]
-            # 没有存储表达式时，返回数值（旧数据）
             return str(record[self.FIELD_MAP[col_name]])
         else:
             return str(record[self.FIELD_MAP[col_name]])
