@@ -81,6 +81,7 @@ class MainWindow(QMainWindow):
         self._apply_column_settings()
 
         self.table_model.set_gray_expression_rows(self.gray_expression_rows)
+        self.table_view.viewport().update()  # 强制重绘视口
 
         self._refresh_data()
 
