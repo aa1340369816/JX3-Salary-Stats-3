@@ -1,5 +1,5 @@
 """
-表格数据模型（含团牌、掉落，安全算式支持，支持文字备注，运算式行变灰-最终版）
+表格数据模型（含团牌、掉落，安全算式支持，支持文字备注，运算式行变灰-终极版）
 """
 
 from PyQt6.QtCore import QAbstractTableModel, Qt
@@ -148,7 +148,7 @@ class SalaryTableModel(QAbstractTableModel):
 
     def set_gray_expression_rows(self, enabled):
         self.gray_expression_rows = enabled
-        # 强制重置模型以完全刷新背景
+        # 强制完全重置模型以确保背景刷新
         self.beginResetModel()
         self.endResetModel()
 
@@ -199,7 +199,7 @@ class SalaryTableModel(QAbstractTableModel):
             return None
 
         row, col = index.row(), index.column()
-        # 统计行：始终返回白色背景
+        # 统计行背景固定白色
         if self.show_stats and self.statistics and self.statistics.get('count', 0) > 0 and row >= len(self.records):
             if role == Qt.ItemDataRole.BackgroundRole:
                 return QColor(255, 255, 255)
@@ -211,11 +211,12 @@ class SalaryTableModel(QAbstractTableModel):
         record = self.records[row]
         col_name = self.visible_columns[col]
 
+        # 关键：背景色永远显式返回，不留 None
         if role == Qt.ItemDataRole.BackgroundRole:
             if self.gray_expression_rows and self._is_row_expression(row):
-                return QColor(230, 230, 230)  # 灰色
+                return QColor(230, 230, 230)   # 浅灰
             else:
-                return QColor(255, 255, 255)  # 白色（关键：非表达式行也显式返回白色）
+                return QColor(255, 255, 255)   # 白色
 
         if role == Qt.ItemDataRole.DisplayRole:
             return self._format_cell(record, col_name)
@@ -254,11 +255,11 @@ class SalaryTableModel(QAbstractTableModel):
         record[8] = record[4] + record[6] - record[5] - record[7]
         self.records[row] = tuple(record)
 
-        # 刷新整行显示和背景
+        # 刷新整行的显示、背景和对齐
         self.dataChanged.emit(
             self.index(row, 0),
             self.index(row, self.columnCount() - 1),
-            [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.BackgroundRole]
+            [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.BackgroundRole, Qt.ItemDataRole.TextAlignmentRole]
         )
         return True
 
