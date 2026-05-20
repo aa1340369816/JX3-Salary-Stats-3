@@ -455,6 +455,8 @@ class MainWindow(QMainWindow):
             self.status_label.setText(f'共 {len(data_records)} 条记录')
             self.save_btn.setEnabled(False)
 
+        # 强制刷新灰度状态
+        self.table_model.set_gray_expression_rows(self.gray_expression_rows)
         self._adjust_window_height(len(data_records))
 
     def _adjust_window_height(self, data_count):
